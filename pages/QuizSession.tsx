@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '../store';
-import { Question, QuestionResult, QuizData } from '../types';
+import { Question, QuestionResult, QuizData, GameState, StreakEffect } from '../types';
 import { QuizQuestion } from '../components/QuizQuestion';
 import { TimerBar } from '../components/TimerBar';
 import { Button } from '../components/Button';
-import { Icons, TOKENS } from '../constants';
+import { XPBar } from '../components/XPBar';
+import { StarRating } from '../components/StarRating';
+import { Icons, TOKENS, GAME_CONFIG } from '../constants';
+import { calculateXP, calculateStars, getLevelFromXP, getStreakEffect, getStreakLabel } from '../utils/gamification';
+import { playCorrectSound, playWrongSound, playStreakSound, playOnFireSound, playLevelUpSound } from '../utils/soundEffects';
 
 type SessionPhase = 'start' | 'quiz' | 'results';
 
@@ -52,6 +56,47 @@ function checkAnswer(question: Question, answer: string | number | boolean | Rec
   }
 }
 
+const initialGameState: GameState = {
+  totalXP: 0,
+  level: 0,
+  streak: 0,
+  starsPerQuestion: [],
+  xpPerQuestion: [],
+  showLevelUp: false,
+  previousLevel: 0,
+};
+
+// Streak indicator overlay
+const StreakIndicator: React.FC<{ streak: number; effect: StreakEffect; t: (key: any) => string }> = ({ streak, effect, t }) => {
+  if (effect === 'none') return null;
+
+  return (
+    <div className="flex items-center gap-2 animate-[bounce_0.5s_ease-out]">
+      <span className={`animate-fire-flicker ${effect === 'onFire' ? 'text-[#ef4444]' : 'text-[#f59e0b]'}`}>
+        <Icons.Fire />
+      </span>
+      <span className={`font-bold text-sm animate-streak-glow ${effect === 'onFire' ? 'text-[#ef4444]' : 'text-[#f59e0b]'}`}>
+        {effect === 'onFire' ? t('onFire') : t('streak')}! x{streak}
+      </span>
+      {effect === 'onFire' && (
+        <span className="animate-fire-flicker text-[#ef4444]">
+          <Icons.Fire />
+        </span>
+      )}
+    </div>
+  );
+};
+
+// Floating XP indicator
+const XPFloater: React.FC<{ xp: number; show: boolean }> = ({ xp, show }) => {
+  if (!show || xp === 0) return null;
+  return (
+    <div className="animate-xp-float text-[#f59e0b] font-bold text-lg">
+      +{xp} XP
+    </div>
+  );
+};
+
 const QuizSession: React.FC = () => {
   const { state, cloudConfig, loadCloudQuiz, isLoading, t, language } = useAppStore();
   const quiz = state.quizzes[0] as QuizData | undefined;
@@ -65,7 +110,20 @@ const QuizSession: React.FC = () => {
   const [timerKey, setTimerKey] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
   const confettiRef = useRef<HTMLCanvasElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Gamification state
+  const [gameState, setGameState] = useState<GameState>(initialGameState);
+  const [feedbackAnim, setFeedbackAnim] = useState<'correct' | 'wrong' | null>(null);
+  const [showXPFloat, setShowXPFloat] = useState(false);
+  const [lastXPEarned, setLastXPEarned] = useState(0);
+  const [lastStarsEarned, setLastStarsEarned] = useState(0);
+  const [streakEffect, setStreakEffect] = useState<StreakEffect>('none');
+  const questionStartTime = useRef<number>(Date.now());
+  const [slideKey, setSlideKey] = useState(0);
+
+  // Animated results state
+  const [displayPct, setDisplayPct] = useState(0);
+  const [revealedStats, setRevealedStats] = useState(0);
 
   useEffect(() => {
     if (cloudConfig.id && cloudConfig.token) {
@@ -83,6 +141,16 @@ const QuizSession: React.FC = () => {
     setAnswered(false);
     setTimerKey(0);
     setPhase('quiz');
+    setGameState(initialGameState);
+    setFeedbackAnim(null);
+    setShowXPFloat(false);
+    setLastXPEarned(0);
+    setLastStarsEarned(0);
+    setStreakEffect('none');
+    setSlideKey(0);
+    setDisplayPct(0);
+    setRevealedStats(0);
+    questionStartTime.current = Date.now();
   };
 
   const handleAnswer = useCallback((answer: string | number | boolean | Record<string, string>) => {
@@ -92,30 +160,121 @@ const QuizSession: React.FC = () => {
     const currentQ = questions[currentIndex];
     const result = checkAnswer(currentQ, answer);
 
+    // Calculate time taken
+    const timeTaken = (Date.now() - questionStartTime.current) / 1000;
+
+    // Calculate gamification
+    const newStreak = result.correct ? gameState.streak + 1 : 0;
+    const xpEarned = calculateXP(
+      result.correct,
+      result.correct ? gameState.streak : 0, // use pre-answer streak for bonus calc
+      timeTaken,
+      quiz.settings.mode === 'timed' ? quiz.settings.timePerQuestion : undefined,
+      quiz.settings.mode
+    );
+    const starsEarned = calculateStars(
+      result.correct,
+      timeTaken,
+      quiz.settings.mode === 'timed' ? quiz.settings.timePerQuestion : undefined,
+      quiz.settings.mode,
+      newStreak
+    );
+
+    const newTotalXP = gameState.totalXP + xpEarned;
+    const newLevel = getLevelFromXP(newTotalXP);
+    const leveledUp = newLevel > gameState.level;
+    const newStreakEffect = getStreakEffect(newStreak);
+
+    // Update game state
+    setGameState(prev => ({
+      totalXP: newTotalXP,
+      level: newLevel,
+      streak: newStreak,
+      starsPerQuestion: [...prev.starsPerQuestion, starsEarned],
+      xpPerQuestion: [...prev.xpPerQuestion, xpEarned],
+      showLevelUp: leveledUp,
+      previousLevel: prev.level,
+    }));
+
+    // Visual feedback
+    setFeedbackAnim(result.correct ? 'correct' : 'wrong');
+    setLastXPEarned(xpEarned);
+    setLastStarsEarned(starsEarned);
+    setStreakEffect(newStreakEffect);
+
+    if (xpEarned > 0) {
+      setShowXPFloat(true);
+      setTimeout(() => setShowXPFloat(false), 1000);
+    }
+
+    // Sound effects
+    if (result.correct) {
+      if (newStreakEffect === 'onFire') {
+        playOnFireSound();
+      } else if (newStreakEffect === 'streak') {
+        playStreakSound();
+      } else {
+        playCorrectSound();
+      }
+    } else {
+      playWrongSound();
+    }
+
+    if (leveledUp) {
+      setTimeout(() => playLevelUpSound(), 300);
+      setTimeout(() => {
+        setGameState(prev => ({ ...prev, showLevelUp: false }));
+      }, GAME_CONFIG.levelUpAnimationDuration);
+    }
+
+    // Clear feedback animation
+    setTimeout(() => setFeedbackAnim(null), GAME_CONFIG.feedbackAnimationDuration);
+
     const qResult: QuestionResult = {
       questionId: currentQ.id,
       correct: result.correct,
       studentAnswer: answer,
+      timeTaken,
+      xpEarned,
+      starsEarned,
+      streakCount: newStreak,
     };
     setResults(prev => [...prev, qResult]);
 
     if (quiz.settings.showCorrectAfterEach) {
       setShowResult(result);
     } else {
-      // Auto-advance after short delay
-      setTimeout(() => advanceQuestion(), 500);
+      setTimeout(() => advanceQuestion(), 600);
     }
-  }, [answered, quiz, questions, currentIndex]);
+  }, [answered, quiz, questions, currentIndex, gameState]);
 
   const handleTimeUp = useCallback(() => {
     if (answered) return;
     setAnswered(true);
 
     const currentQ = questions[currentIndex];
+    const timeTaken = (Date.now() - questionStartTime.current) / 1000;
+
+    // Reset streak on timeout
+    setGameState(prev => ({
+      ...prev,
+      streak: 0,
+      starsPerQuestion: [...prev.starsPerQuestion, 0],
+      xpPerQuestion: [...prev.xpPerQuestion, 0],
+    }));
+    setStreakEffect('none');
+    setFeedbackAnim('wrong');
+    setTimeout(() => setFeedbackAnim(null), GAME_CONFIG.feedbackAnimationDuration);
+    playWrongSound();
+
     const qResult: QuestionResult = {
       questionId: currentQ.id,
       correct: false,
       studentAnswer: '',
+      timeTaken,
+      xpEarned: 0,
+      starsEarned: 0,
+      streakCount: 0,
     };
     setResults(prev => [...prev, qResult]);
 
@@ -123,7 +282,7 @@ const QuizSession: React.FC = () => {
       const result = checkAnswer(currentQ, '');
       setShowResult({ correct: false, correctAnswer: result.correctAnswer });
     } else {
-      setTimeout(() => advanceQuestion(), 500);
+      setTimeout(() => advanceQuestion(), 600);
     }
   }, [answered, questions, currentIndex, quiz]);
 
@@ -136,15 +295,32 @@ const QuizSession: React.FC = () => {
     setShowResult(null);
     setAnswered(false);
     setTimerKey(prev => prev + 1);
+    setSlideKey(prev => prev + 1);
+    setLastStarsEarned(0);
+    questionStartTime.current = Date.now();
   };
 
   const handleSkip = () => {
     if (answered) return;
     const currentQ = questions[currentIndex];
+    const timeTaken = (Date.now() - questionStartTime.current) / 1000;
+
+    setGameState(prev => ({
+      ...prev,
+      streak: 0,
+      starsPerQuestion: [...prev.starsPerQuestion, 0],
+      xpPerQuestion: [...prev.xpPerQuestion, 0],
+    }));
+    setStreakEffect('none');
+
     const qResult: QuestionResult = {
       questionId: currentQ.id,
       correct: false,
       studentAnswer: '',
+      timeTaken,
+      xpEarned: 0,
+      starsEarned: 0,
+      streakCount: 0,
     };
     setResults(prev => [...prev, qResult]);
     advanceQuestion();
@@ -160,25 +336,8 @@ const QuizSession: React.FC = () => {
 
     if (pct >= 70) {
       setShowConfetti(true);
-      // Play celebration sound
-      try {
-        const ctx = new AudioContext();
-        const notes = [523.25, 659.25, 783.99, 1046.50];
-        notes.forEach((freq, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.frequency.value = freq;
-          osc.type = 'sine';
-          gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.15);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.4);
-          osc.start(ctx.currentTime + i * 0.15);
-          osc.stop(ctx.currentTime + i * 0.15 + 0.4);
-        });
-      } catch {}
+      playLevelUpSound();
 
-      // Canvas confetti
       const canvas = confettiRef.current;
       if (!canvas) return;
       const ctx2d = canvas.getContext('2d');
@@ -193,7 +352,7 @@ const QuizSession: React.FC = () => {
         rotation: number; rotSpeed: number;
       }> = [];
 
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 120; i++) {
         particles.push({
           x: Math.random() * canvas.width,
           y: -20 - Math.random() * 200,
@@ -234,7 +393,41 @@ const QuizSession: React.FC = () => {
       };
       animate();
     }
-  }, [phase, results]);
+  }, [phase]);
+
+  // Animated results count-up
+  useEffect(() => {
+    if (phase !== 'results') return;
+    const correctCount = results.filter(r => r.correct).length;
+    const total = results.length;
+    const targetPct = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+
+    // Count up animation
+    let current = 0;
+    const step = Math.max(1, Math.floor(targetPct / 30));
+    const interval = setInterval(() => {
+      current += step;
+      if (current >= targetPct) {
+        current = targetPct;
+        clearInterval(interval);
+      }
+      setDisplayPct(current);
+    }, 40);
+
+    // Staggered stats reveal
+    const statTimers = [
+      setTimeout(() => setRevealedStats(1), 600),
+      setTimeout(() => setRevealedStats(2), 900),
+      setTimeout(() => setRevealedStats(3), 1200),
+      setTimeout(() => setRevealedStats(4), 1500),
+      setTimeout(() => setRevealedStats(5), 1800),
+    ];
+
+    return () => {
+      clearInterval(interval);
+      statTimers.forEach(clearTimeout);
+    };
+  }, [phase]);
 
   // Loading state
   if (isLoading && !quiz) {
@@ -293,23 +486,33 @@ const QuizSession: React.FC = () => {
 
     return (
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* Progress */}
+        {/* XP Bar */}
+        <XPBar
+          totalXP={gameState.totalXP}
+          level={gameState.level}
+          showLevelUp={gameState.showLevelUp}
+        />
+
+        {/* Progress + Streak */}
         <div className="space-y-2">
           <div className="flex justify-between items-center">
             <span className={`${TOKENS.typography.sm} text-[#6882a9]`}>
               {t('question')} {currentIndex + 1} {t('questionOf')} {questions.length}
             </span>
-            <span className={`${TOKENS.typography.xs} px-3 py-1 rounded-full ${
-              currentQ.type === 'mcq' ? 'bg-[#ed3b91]/10 text-[#ed3b91]' :
-              currentQ.type === 'true_false' ? 'bg-[#08b8fb]/10 text-[#08b8fb]' :
-              currentQ.type === 'fill_blank' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
-              'bg-[#a855f7]/10 text-[#a855f7]'
-            }`}>
-              {currentQ.type === 'mcq' ? t('mcq') :
-               currentQ.type === 'true_false' ? t('trueFalse') :
-               currentQ.type === 'fill_blank' ? t('fillBlank') :
-               t('matching')}
-            </span>
+            <div className="flex items-center gap-3">
+              <StreakIndicator streak={gameState.streak} effect={streakEffect} t={t} />
+              <span className={`${TOKENS.typography.xs} px-3 py-1 rounded-full ${
+                currentQ.type === 'mcq' ? 'bg-[#ed3b91]/10 text-[#ed3b91]' :
+                currentQ.type === 'true_false' ? 'bg-[#08b8fb]/10 text-[#08b8fb]' :
+                currentQ.type === 'fill_blank' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
+                'bg-[#a855f7]/10 text-[#a855f7]'
+              }`}>
+                {currentQ.type === 'mcq' ? t('mcq') :
+                 currentQ.type === 'true_false' ? t('trueFalse') :
+                 currentQ.type === 'fill_blank' ? t('fillBlank') :
+                 t('matching')}
+              </span>
+            </div>
           </div>
           <div className="w-full h-2 bg-[#e2e8f0] rounded-full overflow-hidden">
             <div
@@ -329,8 +532,14 @@ const QuizSession: React.FC = () => {
           />
         )}
 
-        {/* Question */}
-        <div className="bg-white border border-[#e2e8f0] rounded-2xl p-8">
+        {/* Question with animation */}
+        <div
+          key={slideKey}
+          className={`bg-white border border-[#e2e8f0] rounded-2xl p-8 transition-shadow duration-300 animate-slide-in-right ${
+            feedbackAnim === 'correct' ? 'animate-correct-pulse border-[#22c55e]' :
+            feedbackAnim === 'wrong' ? 'animate-wrong-shake border-[#ef4444]' : ''
+          }`}
+        >
           <QuizQuestion
             question={currentQ}
             onAnswer={handleAnswer}
@@ -339,7 +548,7 @@ const QuizSession: React.FC = () => {
           />
         </div>
 
-        {/* Controls */}
+        {/* Controls with XP/Stars feedback */}
         <div className="flex justify-between items-center">
           {!answered && quiz.settings.mode === 'self_paced' && (
             <Button variant="ghost" size="md" onClick={handleSkip}>
@@ -348,16 +557,22 @@ const QuizSession: React.FC = () => {
           )}
           {!answered && quiz.settings.mode !== 'self_paced' && <div />}
           {answered && showResult && (
-            <div className="flex items-center gap-3">
-              {showResult.correct ? (
-                <span className="flex items-center gap-2 text-[#22c55e] font-bold">
-                  <Icons.CircleCheck /> {t('correct')}
-                </span>
-              ) : (
-                <span className="flex items-center gap-2 text-[#ef4444] font-bold">
-                  <Icons.CircleX /> {t('incorrect')}
-                </span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                {showResult.correct ? (
+                  <span className="flex items-center gap-2 text-[#22c55e] font-bold">
+                    <Icons.CircleCheck /> {t('correct')}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2 text-[#ef4444] font-bold">
+                    <Icons.CircleX /> {t('incorrect')}
+                  </span>
+                )}
+              </div>
+              {lastStarsEarned > 0 && (
+                <StarRating stars={lastStarsEarned} animate size={20} />
               )}
+              <XPFloater xp={lastXPEarned} show={showXPFloat} />
             </div>
           )}
           {answered && (
@@ -374,7 +589,10 @@ const QuizSession: React.FC = () => {
   if (phase === 'results') {
     const correctCount = results.filter(r => r.correct).length;
     const total = results.length;
-    const pct = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+    const targetPct = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+    const totalStars = gameState.starsPerQuestion.reduce((a, b) => a + b, 0);
+    const maxStars = total * 3;
+    const bestStreak = Math.max(...results.map(r => r.streakCount || 0), 0);
 
     return (
       <div className="max-w-3xl mx-auto space-y-8">
@@ -387,32 +605,76 @@ const QuizSession: React.FC = () => {
 
         {/* Score Card */}
         <div className="text-center space-y-4 py-8">
-          <h1 className={`${TOKENS.typography.display} ${pct >= 70 ? 'text-[#22c55e]' : pct >= 40 ? 'text-[#f59e0b]' : 'text-[#ef4444]'}`}>
-            {pct}%
-          </h1>
-          <h2 className={`${TOKENS.typography.title} text-[#091e42]`}>
-            {pct >= 70 ? t('congratulations') : t('keepPracticing')}
+          {/* Animated Score */}
+          <div className="animate-[countUp_0.5s_ease-out]">
+            <h1 className={`${TOKENS.typography.display} ${targetPct >= 70 ? 'text-[#22c55e]' : targetPct >= 40 ? 'text-[#f59e0b]' : 'text-[#ef4444]'}`}>
+              {displayPct}%
+            </h1>
+          </div>
+
+          <h2 className={`${TOKENS.typography.title} text-[#091e42] ${revealedStats >= 1 ? 'animate-fade-in-up' : 'opacity-0'}`}>
+            {targetPct >= 90 ? t('perfectScore') : targetPct >= 70 ? t('congratulations') : t('keepPracticing')}
           </h2>
-          <p className={`${TOKENS.typography.lg} text-[#6882a9]`}>
-            {pct >= 80 ? t('excellentScore') : pct >= 40 ? t('goodScore') : t('lowScore')}
+          <p className={`${TOKENS.typography.lg} text-[#6882a9] ${revealedStats >= 1 ? 'animate-fade-in-up' : 'opacity-0'}`}>
+            {targetPct >= 80 ? t('excellentScore') : targetPct >= 40 ? t('goodScore') : t('lowScore')}
           </p>
 
-          <div className="flex justify-center gap-8 mt-6">
-            <div className="text-center">
+          {/* Stats grid - staggered reveal */}
+          <div className="flex justify-center gap-6 mt-6 flex-wrap">
+            <div className={`text-center ${revealedStats >= 2 ? 'animate-fade-in-up' : 'opacity-0'}`}>
               <div className={`${TOKENS.typography.title} text-[#22c55e]`}>{correctCount}</div>
               <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('correct')}</div>
             </div>
-            <div className="text-center">
+            <div className={`text-center ${revealedStats >= 2 ? 'animate-fade-in-up' : 'opacity-0'}`} style={{ animationDelay: '100ms' }}>
               <div className={`${TOKENS.typography.title} text-[#ef4444]`}>{total - correctCount}</div>
               <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('incorrect')}</div>
             </div>
-            <div className="text-center">
+            <div className={`text-center ${revealedStats >= 2 ? 'animate-fade-in-up' : 'opacity-0'}`} style={{ animationDelay: '200ms' }}>
               <div className={`${TOKENS.typography.title} text-[#091e42]`}>{total}</div>
               <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('questions')}</div>
             </div>
           </div>
 
-          <div className="flex justify-center gap-4 mt-8">
+          {/* XP/Level/Stars Summary */}
+          <div className={`mt-6 p-6 bg-[#f8fafc] rounded-2xl border border-[#e2e8f0] ${revealedStats >= 3 ? 'animate-fade-in-up' : 'opacity-0'}`}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-[#f59e0b] mb-1">
+                  <Icons.Zap />
+                </div>
+                <div className={`${TOKENS.typography.xl} text-[#091e42]`}>{gameState.totalXP}</div>
+                <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('totalXP')}</div>
+              </div>
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-[#ed3b91] mb-1">
+                  <Icons.Star filled size={20} />
+                </div>
+                <div className={`${TOKENS.typography.xl} text-[#091e42]`}>{totalStars}/{maxStars}</div>
+                <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('starsEarned')}</div>
+              </div>
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-[#08b8fb] mb-1">
+                  <Icons.Fire />
+                </div>
+                <div className={`${TOKENS.typography.xl} text-[#091e42]`}>{bestStreak}x</div>
+                <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('streak')}</div>
+              </div>
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-[#a855f7] mb-1">
+                  <Icons.Zap />
+                </div>
+                <div className={`${TOKENS.typography.xl} text-[#091e42]`}>{gameState.level}</div>
+                <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('level')}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* XP Bar in results */}
+          <div className={`mt-4 ${revealedStats >= 4 ? 'animate-fade-in-up' : 'opacity-0'}`}>
+            <XPBar totalXP={gameState.totalXP} level={gameState.level} showLevelUp={false} />
+          </div>
+
+          <div className={`flex justify-center gap-4 mt-8 ${revealedStats >= 5 ? 'animate-fade-in-up' : 'opacity-0'}`}>
             <Button variant="primary" size="lg" onClick={startQuiz}>
               <Icons.RotateCcw /> <span className="ml-2">{t('retake')}</span>
             </Button>
@@ -426,18 +688,29 @@ const QuizSession: React.FC = () => {
             const result = results[i];
             if (!result) return null;
             const checkResult = checkAnswer(q, result.studentAnswer);
+            const stars = result.starsEarned || 0;
+            const xp = result.xpEarned || 0;
 
             return (
               <div
                 key={q.id}
-                className={`p-5 border rounded-xl ${result.correct ? 'border-[#22c55e]/30 bg-[#22c55e]/5' : 'border-[#ef4444]/30 bg-[#ef4444]/5'}`}
+                className={`p-5 border rounded-xl animate-fade-in-up ${result.correct ? 'border-[#22c55e]/30 bg-[#22c55e]/5' : 'border-[#ef4444]/30 bg-[#ef4444]/5'}`}
+                style={{ animationDelay: `${i * 80}ms` }}
               >
                 <div className="flex items-start gap-3">
                   <span className={`mt-0.5 ${result.correct ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
                     {result.correct ? <Icons.CircleCheck /> : <Icons.CircleX />}
                   </span>
                   <div className="flex-1">
-                    <p className={`${TOKENS.typography.base} font-medium text-[#091e42]`}>{q.question}</p>
+                    <div className="flex items-center justify-between">
+                      <p className={`${TOKENS.typography.base} font-medium text-[#091e42]`}>{q.question}</p>
+                      <div className="flex items-center gap-3 shrink-0 ml-3">
+                        {stars > 0 && <StarRating stars={stars} size={16} />}
+                        {xp > 0 && (
+                          <span className={`${TOKENS.typography.sm} text-[#f59e0b] font-bold`}>+{xp}</span>
+                        )}
+                      </div>
+                    </div>
                     {result.studentAnswer !== '' && (
                       <p className={`${TOKENS.typography.sm} mt-1 ${result.correct ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
                         {t('yourAnswer')}: {

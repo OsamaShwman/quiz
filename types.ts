@@ -61,7 +61,22 @@ export interface QuestionResult {
   correct: boolean;
   studentAnswer: string | number | boolean | Record<string, string>;
   timeTaken?: number; // seconds
+  xpEarned?: number;
+  starsEarned?: number;
+  streakCount?: number;
 }
+
+export interface GameState {
+  totalXP: number;
+  level: number;
+  streak: number;
+  starsPerQuestion: number[];
+  xpPerQuestion: number[];
+  showLevelUp: boolean;
+  previousLevel: number;
+}
+
+export type StreakEffect = 'none' | 'streak' | 'onFire';
 
 export interface QuizAttempt {
   id: string;

@@ -27,7 +27,29 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
     setSelectedLeft(null);
   }, [question.id]);
 
-  // Shuffled right options for matching
+  // Shuffled MCQ option indices (e.g. [2,0,3,1] means display slot 0 shows original option 2)
+  const shuffledMCQIndices = useMemo(() => {
+    if (question.type !== 'mcq') return [];
+    const indices = question.options.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    return indices;
+  }, [question.id]);
+
+  // Shuffled left items for matching
+  const shuffledLeftItems = useMemo(() => {
+    if (question.type !== 'matching') return [];
+    const lefts = question.pairs.map(p => p.left);
+    for (let i = lefts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [lefts[i], lefts[j]] = [lefts[j], lefts[i]];
+    }
+    return lefts;
+  }, [question.id]);
+
+  // Shuffled right items for matching
   const shuffledRightOptions = useMemo(() => {
     if (question.type !== 'matching') return [];
     const rights = question.pairs.map(p => p.right);
@@ -38,42 +60,51 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
     return rights;
   }, [question.id]);
 
+  // Lookup: left text -> correct right text (for matching result highlighting)
+  const correctMatchMap = useMemo(() => {
+    if (question.type !== 'matching') return {} as Record<string, string>;
+    const map: Record<string, string> = {};
+    question.pairs.forEach(p => { map[p.left] = p.right; });
+    return map;
+  }, [question.id]);
+
   const renderMCQ = (q: MCQQuestion) => (
     <div className="space-y-3">
-      {q.options.map((opt, i) => {
+      {shuffledMCQIndices.map((origIdx, displayIdx) => {
+        const opt = q.options[origIdx];
         let bgClass = 'bg-white border-[#e2e8f0] hover:border-[#cbd5e1] hover:bg-[#f8fafc]';
-        if (selectedMCQ === i) {
+        if (selectedMCQ === origIdx) {
           bgClass = 'bg-[#08b8fb]/10 border-[#08b8fb] ring-1 ring-[#08b8fb]';
         }
-        if (showResult && selectedMCQ === i) {
+        if (showResult && selectedMCQ === origIdx) {
           bgClass = showResult.correct
             ? 'bg-[#22c55e]/10 border-[#22c55e] ring-1 ring-[#22c55e]'
             : 'bg-[#ef4444]/10 border-[#ef4444] ring-1 ring-[#ef4444]';
         }
-        if (showResult && !showResult.correct && i === q.correctIndex) {
+        if (showResult && !showResult.correct && origIdx === q.correctIndex) {
           bgClass = 'bg-[#22c55e]/10 border-[#22c55e] ring-1 ring-[#22c55e]';
         }
 
         return (
           <button
-            key={i}
+            key={origIdx}
             onClick={() => {
               if (disabled) return;
-              setSelectedMCQ(i);
-              onAnswer(i);
+              setSelectedMCQ(origIdx);
+              onAnswer(origIdx);
             }}
             disabled={disabled}
             className={`w-full text-start px-5 py-4 border rounded-xl transition-all ${bgClass} ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
           >
             <div className="flex items-center gap-4">
               <span className="w-8 h-8 rounded-full border-2 border-current flex items-center justify-center text-sm font-bold shrink-0">
-                {String.fromCharCode(65 + i)}
+                {String.fromCharCode(65 + displayIdx)}
               </span>
               <span className={TOKENS.typography.base}>{opt}</span>
-              {showResult && i === q.correctIndex && (
+              {showResult && origIdx === q.correctIndex && (
                 <span className="ml-auto text-[#22c55e]"><Icons.CircleCheck /></span>
               )}
-              {showResult && selectedMCQ === i && !showResult.correct && (
+              {showResult && selectedMCQ === origIdx && !showResult.correct && (
                 <span className="ml-auto text-[#ef4444]"><Icons.CircleX /></span>
               )}
             </div>
@@ -168,17 +199,17 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
       <div className="space-y-4">
         <p className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('matchInstruction')}</p>
         <div className="grid grid-cols-2 gap-6">
-          {/* Left column */}
+          {/* Left column (shuffled) */}
           <div className="space-y-3">
-            {q.pairs.map((pair, i) => {
-              const isMatched = matchAnswers[pair.left] !== undefined;
-              const isSelected = selectedLeft === pair.left;
+            {shuffledLeftItems.map((leftText, i) => {
+              const isMatched = matchAnswers[leftText] !== undefined;
+              const isSelected = selectedLeft === leftText;
               let bgClass = 'bg-white border-[#e2e8f0] hover:border-[#cbd5e1]';
               if (isSelected) bgClass = 'bg-[#ed3b91]/10 border-[#ed3b91] ring-1 ring-[#ed3b91]';
               if (isMatched) bgClass = 'bg-[#08b8fb]/10 border-[#08b8fb]';
 
               if (showResult && isMatched) {
-                const isCorrect = matchAnswers[pair.left] === pair.right;
+                const isCorrect = matchAnswers[leftText] === correctMatchMap[leftText];
                 bgClass = isCorrect
                   ? 'bg-[#22c55e]/10 border-[#22c55e]'
                   : 'bg-[#ef4444]/10 border-[#ef4444]';
@@ -189,15 +220,15 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
                   key={`left-${i}`}
                   onClick={() => {
                     if (disabled || isMatched) return;
-                    setSelectedLeft(pair.left);
+                    setSelectedLeft(leftText);
                   }}
                   disabled={disabled || isMatched}
                   className={`w-full text-start px-4 py-3 border rounded-xl transition-all ${bgClass} ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
                 >
-                  <span className={TOKENS.typography.base}>{pair.left}</span>
+                  <span className={TOKENS.typography.base}>{leftText}</span>
                   {isMatched && (
                     <span className={`${TOKENS.typography.sm} ml-2 text-[#08b8fb]`}>
-                      &rarr; {matchAnswers[pair.left]}
+                      &rarr; {matchAnswers[leftText]}
                     </span>
                   )}
                 </button>
