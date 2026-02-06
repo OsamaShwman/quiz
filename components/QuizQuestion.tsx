@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Question, MCQQuestion, TrueFalseQuestion, FillBlankQuestion, MatchingQuestion } from '../types';
+import { Question, MCQQuestion, TrueFalseQuestion, FillBlankQuestion, MatchingQuestion, MultiSelectQuestion } from '../types';
 import { useAppStore } from '../store';
 import { TOKENS, Icons } from '../constants';
 
 interface QuizQuestionProps {
   question: Question;
-  onAnswer: (answer: string | number | boolean | Record<string, string>) => void;
+  onAnswer: (answer: string | number | boolean | number[] | Record<string, string>) => void;
   showResult?: { correct: boolean; correctAnswer: string } | null;
   disabled?: boolean;
 }
@@ -17,6 +17,8 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
   const [fillAnswer, setFillAnswer] = useState('');
   const [matchAnswers, setMatchAnswers] = useState<Record<string, string>>({});
   const [selectedLeft, setSelectedLeft] = useState<string | null>(null);
+  const [selectedMulti, setSelectedMulti] = useState<number[]>([]);
+  const [multiSubmitted, setMultiSubmitted] = useState(false);
 
   // Reset state when question changes
   useEffect(() => {
@@ -25,11 +27,24 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
     setFillAnswer('');
     setMatchAnswers({});
     setSelectedLeft(null);
+    setSelectedMulti([]);
+    setMultiSubmitted(false);
   }, [question.id]);
 
   // Shuffled MCQ option indices (e.g. [2,0,3,1] means display slot 0 shows original option 2)
   const shuffledMCQIndices = useMemo(() => {
     if (question.type !== 'mcq') return [];
+    const indices = question.options.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    return indices;
+  }, [question.id]);
+
+  // Shuffled multi-select option indices
+  const shuffledMultiIndices = useMemo(() => {
+    if (question.type !== 'multi_select') return [];
     const indices = question.options.map((_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -274,6 +289,89 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
     );
   };
 
+  const renderMultiSelect = (q: MultiSelectQuestion) => {
+    const sortedCorrect = [...q.correctIndices].sort((a, b) => a - b);
+
+    return (
+      <div className="space-y-4">
+        <p className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('selectAllCorrect')}</p>
+        <div className="space-y-3">
+          {shuffledMultiIndices.map((origIdx, displayIdx) => {
+            const opt = q.options[origIdx];
+            const isSelected = selectedMulti.includes(origIdx);
+            const isCorrectOption = q.correctIndices.includes(origIdx);
+
+            let bgClass = 'bg-white border-[#e2e8f0] hover:border-[#cbd5e1] hover:bg-[#f8fafc]';
+            if (isSelected && !multiSubmitted) {
+              bgClass = 'bg-[#14b8a6]/10 border-[#14b8a6] ring-1 ring-[#14b8a6]';
+            }
+            if (multiSubmitted && showResult) {
+              if (isSelected && isCorrectOption) {
+                bgClass = 'bg-[#22c55e]/10 border-[#22c55e] ring-1 ring-[#22c55e]';
+              } else if (isSelected && !isCorrectOption) {
+                bgClass = 'bg-[#ef4444]/10 border-[#ef4444] ring-1 ring-[#ef4444]';
+              } else if (!isSelected && isCorrectOption && !showResult.correct) {
+                bgClass = 'bg-[#22c55e]/10 border-[#22c55e] ring-1 ring-[#22c55e]';
+              }
+            }
+
+            return (
+              <button
+                key={origIdx}
+                onClick={() => {
+                  if (disabled || multiSubmitted) return;
+                  setSelectedMulti(prev =>
+                    prev.includes(origIdx)
+                      ? prev.filter(i => i !== origIdx)
+                      : [...prev, origIdx]
+                  );
+                }}
+                disabled={disabled || multiSubmitted}
+                className={`w-full text-start px-5 py-4 border rounded-xl transition-all ${bgClass} ${disabled || multiSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
+              >
+                <div className="flex items-center gap-4">
+                  {/* Checkbox */}
+                  <span className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
+                    isSelected ? 'border-[#14b8a6] bg-[#14b8a6] text-white' : 'border-[#cbd5e1]'
+                  }`}>
+                    {isSelected && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    )}
+                  </span>
+                  <span className={TOKENS.typography.base}>{opt}</span>
+                  {multiSubmitted && showResult && isCorrectOption && (
+                    <span className="ml-auto text-[#22c55e]"><Icons.CircleCheck /></span>
+                  )}
+                  {multiSubmitted && showResult && isSelected && !isCorrectOption && (
+                    <span className="ml-auto text-[#ef4444]"><Icons.CircleX /></span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {!multiSubmitted && !disabled && (
+          <button
+            onClick={() => {
+              if (selectedMulti.length === 0) return;
+              setMultiSubmitted(true);
+              const sortedSelected = [...selectedMulti].sort((a, b) => a - b);
+              onAnswer(sortedSelected);
+            }}
+            disabled={selectedMulti.length === 0}
+            className={`px-6 py-3 rounded-xl font-bold transition-colors ${
+              selectedMulti.length > 0
+                ? 'bg-[#14b8a6] text-white hover:bg-[#0d9488]'
+                : 'bg-[#e2e8f0] text-[#94a3b8] cursor-not-allowed'
+            }`}
+          >
+            {t('submit')}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <h2 className={`${TOKENS.typography.xl} text-[#091e42]`}>{question.question}</h2>
@@ -281,6 +379,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
       {question.type === 'true_false' && renderTrueFalse(question)}
       {question.type === 'fill_blank' && renderFillBlank(question)}
       {question.type === 'matching' && renderMatching(question)}
+      {question.type === 'multi_select' && renderMultiSelect(question)}
     </div>
   );
 };

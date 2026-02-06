@@ -23,7 +23,7 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
-function checkAnswer(question: Question, answer: string | number | boolean | Record<string, string>): { correct: boolean; correctAnswer: string } {
+function checkAnswer(question: Question, answer: string | number | boolean | number[] | Record<string, string>): { correct: boolean; correctAnswer: string } {
   switch (question.type) {
     case 'mcq':
       return {
@@ -51,6 +51,17 @@ function checkAnswer(question: Question, answer: string | number | boolean | Rec
       return {
         correct: allCorrect,
         correctAnswer: question.pairs.map(p => `${p.left} = ${p.right}`).join(', '),
+      };
+    }
+    case 'multi_select': {
+      const selected = (Array.isArray(answer) ? answer : []) as number[];
+      const sortedSelected = [...selected].sort((a, b) => a - b);
+      const sortedCorrect = [...question.correctIndices].sort((a, b) => a - b);
+      const isCorrect = sortedSelected.length === sortedCorrect.length &&
+        sortedSelected.every((v, i) => v === sortedCorrect[i]);
+      return {
+        correct: isCorrect,
+        correctAnswer: question.correctIndices.map(i => question.options[i]).join(', '),
       };
     }
   }
@@ -153,7 +164,7 @@ const QuizSession: React.FC = () => {
     questionStartTime.current = Date.now();
   };
 
-  const handleAnswer = useCallback((answer: string | number | boolean | Record<string, string>) => {
+  const handleAnswer = useCallback((answer: string | number | boolean | number[] | Record<string, string>) => {
     if (answered || !quiz) return;
     setAnswered(true);
 
@@ -505,11 +516,13 @@ const QuizSession: React.FC = () => {
                 currentQ.type === 'mcq' ? 'bg-[#ed3b91]/10 text-[#ed3b91]' :
                 currentQ.type === 'true_false' ? 'bg-[#08b8fb]/10 text-[#08b8fb]' :
                 currentQ.type === 'fill_blank' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
+                currentQ.type === 'multi_select' ? 'bg-[#14b8a6]/10 text-[#14b8a6]' :
                 'bg-[#a855f7]/10 text-[#a855f7]'
               }`}>
                 {currentQ.type === 'mcq' ? t('mcq') :
                  currentQ.type === 'true_false' ? t('trueFalse') :
                  currentQ.type === 'fill_blank' ? t('fillBlank') :
+                 currentQ.type === 'multi_select' ? t('multiSelect') :
                  t('matching')}
               </span>
             </div>
@@ -714,7 +727,11 @@ const QuizSession: React.FC = () => {
                     {result.studentAnswer !== '' && (
                       <p className={`${TOKENS.typography.sm} mt-1 ${result.correct ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
                         {t('yourAnswer')}: {
-                          typeof result.studentAnswer === 'object'
+                          Array.isArray(result.studentAnswer)
+                            ? (q.type === 'multi_select'
+                              ? (result.studentAnswer as number[]).map(i => (q as any).options[i]).join(', ')
+                              : String(result.studentAnswer))
+                            : typeof result.studentAnswer === 'object'
                             ? Object.entries(result.studentAnswer).map(([k, v]) => `${k} = ${v}`).join(', ')
                             : q.type === 'mcq'
                             ? (q as any).options[result.studentAnswer as number]

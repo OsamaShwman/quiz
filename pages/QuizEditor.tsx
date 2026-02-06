@@ -196,10 +196,7 @@ const QuizEditor: React.FC = () => {
           <Button variant="outline" size="md" onClick={() => setShowAiPanel(!showAiPanel)}>
             <Icons.Sparkles /> <span className="ml-2">{t('aiTools')}</span>
           </Button>
-          <Button variant="outline" size="md" onClick={() => handleSave('draft')} disabled={saveStatus === 'saving'}>
-            {saveStatus === 'saving' ? t('saving') : t('saveDraft')}
-          </Button>
-          <Button variant="primary" size="md" onClick={() => handleSave('published')} disabled={saveStatus === 'saving'}>
+<Button variant="primary" size="md" onClick={() => handleSave('published')} disabled={saveStatus === 'saving'}>
             {t('publish')}
           </Button>
         </div>

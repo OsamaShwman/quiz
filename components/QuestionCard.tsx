@@ -1,5 +1,5 @@
 import React from 'react';
-import { Question, QuestionType, MCQQuestion, TrueFalseQuestion, FillBlankQuestion, MatchingQuestion } from '../types';
+import { Question, QuestionType, MCQQuestion, TrueFalseQuestion, FillBlankQuestion, MatchingQuestion, MultiSelectQuestion } from '../types';
 import { useAppStore } from '../store';
 import { Button } from './Button';
 import { Icons, TOKENS, FOCUS_RING } from '../constants';
@@ -16,6 +16,7 @@ const TYPE_THEME = {
   true_false: { color: '#08b8fb', bg: 'bg-[#08b8fb]', bgLight: 'bg-[#08b8fb]/5', border: 'border-[#08b8fb]', text: 'text-[#08b8fb]', accent: '#08b8fb', label: 'T/F' },
   fill_blank: { color: '#f59e0b', bg: 'bg-[#f59e0b]', bgLight: 'bg-[#f59e0b]/5', border: 'border-[#f59e0b]', text: 'text-[#f59e0b]', accent: '#f59e0b', label: 'Fill' },
   matching: { color: '#a855f7', bg: 'bg-[#a855f7]', bgLight: 'bg-[#a855f7]/5', border: 'border-[#a855f7]', text: 'text-[#a855f7]', accent: '#a855f7', label: 'Match' },
+  multi_select: { color: '#14b8a6', bg: 'bg-[#14b8a6]', bgLight: 'bg-[#14b8a6]/5', border: 'border-[#14b8a6]', text: 'text-[#14b8a6]', accent: '#14b8a6', label: 'Multi' },
 };
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'];
@@ -41,6 +42,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onC
       case 'matching':
         onChange({ ...base, type: 'matching', pairs: [{ left: '', right: '' }, { left: '', right: '' }, { left: '', right: '' }] });
         break;
+      case 'multi_select':
+        onChange({ ...base, type: 'multi_select', options: ['', '', '', ''], correctIndices: [] });
+        break;
     }
   };
 
@@ -49,6 +53,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onC
     { type: 'true_false', key: 'true_false' },
     { type: 'fill_blank', key: 'fill_blank' },
     { type: 'matching', key: 'matching' },
+    { type: 'multi_select', key: 'multi_select' },
   ];
 
   const renderMCQEditor = (q: MCQQuestion) => (
@@ -265,12 +270,99 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onC
     </div>
   );
 
+  const renderMultiSelectEditor = (q: MultiSelectQuestion) => (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="w-5 h-5 rounded bg-[#14b8a6]/10 flex items-center justify-center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span className="text-[0.75rem] font-semibold uppercase tracking-wider text-[#14b8a6]">{t('selectAllCorrect')}</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {q.options.map((opt, i) => {
+          const isCorrect = q.correctIndices.includes(i);
+          return (
+            <div
+              key={i}
+              onClick={() => {
+                const newIndices = isCorrect
+                  ? q.correctIndices.filter(idx => idx !== i)
+                  : [...q.correctIndices, i];
+                onChange({ ...q, correctIndices: newIndices });
+              }}
+              className={`group relative flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-200 ${
+                isCorrect
+                  ? 'border-[#22c55e] bg-[#22c55e]/5 shadow-[0_0_0_1px_rgba(34,197,94,0.1)]'
+                  : 'border-[#e2e8f0] bg-white hover:border-[#cbd5e1] hover:shadow-sm'
+              }`}
+            >
+              {/* Checkbox badge */}
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 transition-all duration-200 ${
+                isCorrect
+                  ? 'bg-[#22c55e] text-white shadow-[0_2px_8px_rgba(34,197,94,0.3)]'
+                  : 'bg-[#f1f5f9] text-[#6882a9] group-hover:bg-[#e2e8f0]'
+              }`}>
+                {isCorrect ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                ) : (
+                  OPTION_LETTERS[i] || String(i + 1)
+                )}
+              </div>
+              <input
+                type="text"
+                value={opt}
+                onClick={e => e.stopPropagation()}
+                onChange={e => {
+                  const newOptions = [...q.options];
+                  newOptions[i] = e.target.value;
+                  onChange({ ...q, options: newOptions });
+                }}
+                placeholder={`${t('option')} ${i + 1}`}
+                className="flex-1 bg-transparent border-none outline-none text-[0.9rem] text-[#091e42] placeholder-[#b0bec5]"
+              />
+              {isCorrect && (
+                <div className="text-[#22c55e] shrink-0">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {/* Add/Remove option buttons */}
+      <div className="flex items-center gap-2 pt-1">
+        {q.options.length < 6 && (
+          <button
+            onClick={() => onChange({ ...q, options: [...q.options, ''] })}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-[#14b8a6] hover:bg-[#14b8a6]/5 transition-colors text-sm font-medium"
+          >
+            <Icons.Plus /> {t('option')}
+          </button>
+        )}
+        {q.options.length > 2 && (
+          <button
+            onClick={() => {
+              const lastIdx = q.options.length - 1;
+              const newOptions = q.options.slice(0, -1);
+              const newIndices = q.correctIndices.filter(idx => idx !== lastIdx);
+              onChange({ ...q, options: newOptions, correctIndices: newIndices });
+            }}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-[#ef4444] hover:bg-[#ef4444]/5 transition-colors text-sm font-medium"
+          >
+            <Icons.Trash />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   const renderEditor = () => {
     switch (question.type) {
       case 'mcq': return renderMCQEditor(question);
       case 'true_false': return renderTrueFalseEditor(question);
       case 'fill_blank': return renderFillBlankEditor(question);
       case 'matching': return renderMatchingEditor(question);
+      case 'multi_select': return renderMultiSelectEditor(question);
     }
   };
 
@@ -305,7 +397,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onC
                   }`}
                   style={isActive ? { backgroundColor: tTheme.color } : undefined}
                 >
-                  {tb.type === 'mcq' ? t('mcq') : tb.type === 'true_false' ? t('trueFalse') : tb.type === 'fill_blank' ? t('fillBlank') : t('matching')}
+                  {tb.type === 'mcq' ? t('mcq') : tb.type === 'true_false' ? t('trueFalse') : tb.type === 'fill_blank' ? t('fillBlank') : tb.type === 'matching' ? t('matching') : t('multiSelect')}
                 </button>
               );
             })}

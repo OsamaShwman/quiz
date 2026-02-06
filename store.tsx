@@ -104,6 +104,8 @@ export const translations = {
     perfectScore: 'Perfect Score!',
     greatJob: 'Great Job!',
     niceWork: 'Nice Work!',
+    multiSelect: 'Multi-Select',
+    selectAllCorrect: 'Select all correct answers',
   },
   ar: {
     quiz: 'اختبار',
@@ -203,6 +205,8 @@ export const translations = {
     perfectScore: 'نتيجة مثالية!',
     greatJob: 'عمل رائع!',
     niceWork: 'عمل جيد!',
+    multiSelect: 'اختيار متعدد',
+    selectAllCorrect: 'اختر جميع الاجابات الصحيحة',
   }
 };
 

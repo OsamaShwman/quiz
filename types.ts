@@ -1,4 +1,4 @@
-export type QuestionType = 'mcq' | 'true_false' | 'fill_blank' | 'matching';
+export type QuestionType = 'mcq' | 'true_false' | 'fill_blank' | 'matching' | 'multi_select';
 export type QuizStatus = 'draft' | 'published';
 export type QuizMode = 'timed' | 'self_paced';
 
@@ -37,7 +37,15 @@ export interface MatchingQuestion {
   pairs: MatchingPair[];
 }
 
-export type Question = MCQQuestion | TrueFalseQuestion | FillBlankQuestion | MatchingQuestion;
+export interface MultiSelectQuestion {
+  id: string;
+  type: 'multi_select';
+  question: string;
+  options: string[];
+  correctIndices: number[];
+}
+
+export type Question = MCQQuestion | TrueFalseQuestion | FillBlankQuestion | MatchingQuestion | MultiSelectQuestion;
 
 export interface QuizSettings {
   mode: QuizMode;
@@ -59,7 +67,7 @@ export interface QuizData {
 export interface QuestionResult {
   questionId: string;
   correct: boolean;
-  studentAnswer: string | number | boolean | Record<string, string>;
+  studentAnswer: string | number | boolean | number[] | Record<string, string>;
   timeTaken?: number; // seconds
   xpEarned?: number;
   starsEarned?: number;

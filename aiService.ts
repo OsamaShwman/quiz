@@ -28,8 +28,9 @@ export const generateQuizQuestions = async (
          - "true_false": A statement that is clearly true or false, with correctAnswer (boolean)
          - "fill_blank": A sentence with a blank, with acceptedAnswers array (multiple valid spellings) and caseSensitive (usually false)
          - "matching": A set of 3-6 pairs to match, each with left and right
+         - "multi_select": Multiple choice where multiple options can be correct, with options array and correctIndices (array of correct option indices)
       5. Create 8 to 15 questions depending on the amount of content.
-      6. Aim for roughly: 40% MCQ, 20% True/False, 20% Fill-blank, 20% Matching
+      6. Aim for roughly: 30% MCQ, 15% True/False, 15% Fill-blank, 15% Matching, 25% Multi-Select
       7. Questions should test understanding, not just recall.
       8. Generate a short, descriptive title for the quiz based on the content topic. The title must be in the same language as the content.
       9. For matching questions, the "question" field should be an instruction like "Match the following terms with their definitions" (in the content's language).
@@ -75,11 +76,13 @@ export const generateQuizQuestions = async (
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  type: { type: Type.STRING, enum: ['mcq', 'true_false', 'fill_blank', 'matching'] },
+                  type: { type: Type.STRING, enum: ['mcq', 'true_false', 'fill_blank', 'matching', 'multi_select'] },
                   question: { type: Type.STRING },
                   // MCQ fields
                   options: { type: Type.ARRAY, items: { type: Type.STRING } },
                   correctIndex: { type: Type.INTEGER },
+                  // Multi-select fields
+                  correctIndices: { type: Type.ARRAY, items: { type: Type.INTEGER } },
                   // True/False fields
                   correctAnswer: { type: Type.BOOLEAN },
                   // Fill-blank fields
@@ -141,6 +144,14 @@ export const generateQuizQuestions = async (
               type: 'matching' as const,
               question: q.question,
               pairs: (q.pairs || []).slice(0, 6),
+            };
+          case 'multi_select':
+            return {
+              id,
+              type: 'multi_select' as const,
+              question: q.question,
+              options: q.options || ['', '', '', ''],
+              correctIndices: q.correctIndices || [0],
             };
           default:
             return {
