@@ -22,7 +22,7 @@ export const generateQuizQuestions = async (
       CRITICAL Rules:
       1. Detect the language of the provided content. The output MUST be in the SAME language as the source content.
       2. Focus ONLY on the subject matter and key knowledge within the content.
-      3. Every question MUST be specific and self-contained.
+      3. Every question MUST be specific and self-contained. NEVER reference the source text in questions - do NOT use phrases like "According to the text", "Based on the passage", "The text states", or their Arabic equivalents like "وفقا للنص" or "حسب النص". Students will NOT have the source material, so questions must stand on their own.
       4. Generate a MIX of question types:
          - "mcq": Multiple choice with exactly 4 options and a correctIndex (0-3)
          - "true_false": A statement that is clearly true or false, with correctAnswer (boolean)
