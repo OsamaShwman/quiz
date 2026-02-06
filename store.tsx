@@ -106,6 +106,14 @@ export const translations = {
     niceWork: 'Nice Work!',
     multiSelect: 'Multi-Select',
     selectAllCorrect: 'Select all correct answers',
+    studentName: 'Student',
+    submittedAt: 'Submitted at',
+    studentAnswers: 'Student Answers',
+    reviewSubmission: 'Review Submission',
+    submissionSaved: 'Results saved!',
+    noSubmission: 'No submission found.',
+    previousResults: 'Your Previous Results',
+    viewPrevious: 'View Previous Results',
   },
   ar: {
     quiz: 'اختبار',
@@ -207,6 +215,14 @@ export const translations = {
     niceWork: 'عمل جيد!',
     multiSelect: 'اختيار متعدد',
     selectAllCorrect: 'اختر جميع الاجابات الصحيحة',
+    studentName: 'الطالب',
+    submittedAt: 'تم التقديم في',
+    studentAnswers: 'اجابات الطالب',
+    reviewSubmission: 'مراجعة التقديم',
+    submissionSaved: 'تم حفظ النتائج!',
+    noSubmission: 'لا يوجد تقديم.',
+    previousResults: 'نتائجك السابقة',
+    viewPrevious: 'عرض النتائج السابقة',
   }
 };
 
@@ -214,6 +230,7 @@ export interface CloudConfig {
   id: string;
   token: string;
   mode: 'teacher' | 'student' | null;
+  submissionId: string | null;
 }
 
 interface AppContextType {
@@ -254,7 +271,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : { quizzes: [], attempts: [] };
   });
 
-  const [cloudConfig, setCloudConfig] = useState<CloudConfig>({ id: '', token: '', mode: null });
+  const [cloudConfig, setCloudConfig] = useState<CloudConfig>({ id: '', token: '', mode: null, submissionId: null });
   const [isLoading, setIsLoading] = useState(false);
 
   // Initialize Credentials
@@ -262,12 +279,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let params = new URLSearchParams(window.location.search);
     let id = params.get('id');
     let token = params.get('token');
+    let submissionId = params.get('submission_id');
 
     if (!id || !token) {
       if (window.location.hash.includes('?')) {
         const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
         if (!id) id = hashParams.get('id');
         if (!token) token = hashParams.get('token');
+        if (!submissionId) submissionId = hashParams.get('submission_id');
       }
     }
 
@@ -281,10 +300,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    console.log('[App] Initializing. ID found:', !!id, 'Token found:', !!token);
+    console.log('[App] Initializing. ID found:', !!id, 'Token found:', !!token, 'SubmissionId:', submissionId);
 
     if (id && token) {
-      setCloudConfig({ id, token, mode: null });
+      setCloudConfig({ id, token, mode: null, submissionId: submissionId || null });
       localStorage.setItem('quiz_cloud_id', id);
       localStorage.setItem('quiz_cloud_token', token);
     } else {

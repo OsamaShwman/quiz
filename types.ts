@@ -101,6 +101,44 @@ export interface AppState {
   attempts: QuizAttempt[];
 }
 
+export interface SubmissionQuestionData {
+  questionId: string;
+  question: string;
+  type: QuestionType;
+  options?: string[];
+  pairs?: MatchingPair[];
+  studentAnswer: string | number | boolean | number[] | Record<string, string>;
+  correct: boolean;
+  correctAnswer: string;
+  timeTaken?: number;
+  xpEarned?: number;
+  starsEarned?: number;
+}
+
+export interface SubmissionContent {
+  quizId: string;
+  quizTitle: string;
+  mode: QuizMode;
+  timePerQuestion?: number;
+  totalQuestions: number;
+  correctAnswers: number;
+  totalXP: number;
+  level: number;
+  totalStars: number;
+  bestStreak: number;
+  questions: SubmissionQuestionData[];
+}
+
+export interface SubmissionResponse {
+  id: number;
+  content: string; // JSON stringified SubmissionContent
+  score: number;
+  status: string;
+  created_at?: string;
+  student_name?: string;
+  [key: string]: any;
+}
+
 export const DEFAULT_SETTINGS: QuizSettings = {
   mode: 'self_paced',
   timePerQuestion: 30,

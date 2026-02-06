@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '../store';
-import { Question, QuestionResult, QuizData, GameState, StreakEffect } from '../types';
+import { Question, QuestionResult, QuizData, GameState, StreakEffect, SubmissionContent, SubmissionQuestionData, MCQQuestion, MatchingQuestion, MultiSelectQuestion } from '../types';
+import { submitQuizResult, getOwnSubmission } from '../api';
 import { QuizQuestion } from '../components/QuizQuestion';
 import { TimerBar } from '../components/TimerBar';
 import { Button } from '../components/Button';
@@ -132,6 +133,13 @@ const QuizSession: React.FC = () => {
   const questionStartTime = useRef<number>(Date.now());
   const [slideKey, setSlideKey] = useState(0);
 
+  // Submission state
+  const [submissionSaved, setSubmissionSaved] = useState(false);
+  const [submissionError, setSubmissionError] = useState(false);
+  const submissionSentRef = useRef(false);
+  const [previousSubmission, setPreviousSubmission] = useState<SubmissionContent | null>(null);
+  const [showPreviousResults, setShowPreviousResults] = useState(false);
+
   // Animated results state
   const [displayPct, setDisplayPct] = useState(0);
   const [revealedStats, setRevealedStats] = useState(0);
@@ -139,6 +147,17 @@ const QuizSession: React.FC = () => {
   useEffect(() => {
     if (cloudConfig.id && cloudConfig.token) {
       loadCloudQuiz();
+      // Check for previous submission
+      getOwnSubmission(cloudConfig.id, cloudConfig.token)
+        .then(sub => {
+          if (sub && sub.content) {
+            try {
+              const content = typeof sub.content === 'string' ? JSON.parse(sub.content) : sub.content;
+              setPreviousSubmission(content);
+            } catch { /* ignore parse errors */ }
+          }
+        })
+        .catch(() => { /* silently ignore */ });
     }
   }, [cloudConfig.id, cloudConfig.token]);
 
@@ -161,6 +180,10 @@ const QuizSession: React.FC = () => {
     setSlideKey(0);
     setDisplayPct(0);
     setRevealedStats(0);
+    setSubmissionSaved(false);
+    setSubmissionError(false);
+    submissionSentRef.current = false;
+    setShowPreviousResults(false);
     questionStartTime.current = Date.now();
   };
 
@@ -406,6 +429,58 @@ const QuizSession: React.FC = () => {
     }
   }, [phase]);
 
+  // Submit results to API
+  useEffect(() => {
+    if (phase !== 'results' || submissionSentRef.current) return;
+    if (!cloudConfig.id || !cloudConfig.token || !quiz) return;
+    submissionSentRef.current = true;
+
+    const correctCount = results.filter(r => r.correct).length;
+    const total = results.length;
+    const scorePct = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+    const totalStars = gameState.starsPerQuestion.reduce((a, b) => a + b, 0);
+    const bestStreak = Math.max(...results.map(r => r.streakCount || 0), 0);
+
+    const submissionQuestions: SubmissionQuestionData[] = questions.map((q, i) => {
+      const result = results[i];
+      if (!result) return null;
+      const check = checkAnswer(q, result.studentAnswer);
+      const base: SubmissionQuestionData = {
+        questionId: q.id,
+        question: q.question,
+        type: q.type,
+        studentAnswer: result.studentAnswer,
+        correct: result.correct,
+        correctAnswer: check.correctAnswer,
+        timeTaken: result.timeTaken,
+        xpEarned: result.xpEarned,
+        starsEarned: result.starsEarned,
+      };
+      if (q.type === 'mcq') base.options = [...(q as MCQQuestion).options];
+      if (q.type === 'multi_select') base.options = [...(q as MultiSelectQuestion).options];
+      if (q.type === 'matching') base.pairs = [...(q as MatchingQuestion).pairs];
+      return base;
+    }).filter(Boolean) as SubmissionQuestionData[];
+
+    const content: SubmissionContent = {
+      quizId: quiz.id,
+      quizTitle: quiz.title,
+      mode: quiz.settings.mode,
+      timePerQuestion: quiz.settings.mode === 'timed' ? quiz.settings.timePerQuestion : undefined,
+      totalQuestions: total,
+      correctAnswers: correctCount,
+      totalXP: gameState.totalXP,
+      level: gameState.level,
+      totalStars,
+      bestStreak,
+      questions: submissionQuestions,
+    };
+
+    submitQuizResult(cloudConfig.id, cloudConfig.token, content, scorePct)
+      .then(() => setSubmissionSaved(true))
+      .catch(() => setSubmissionError(true));
+  }, [phase]);
+
   // Animated results count-up
   useEffect(() => {
     if (phase !== 'results') return;
@@ -482,9 +557,66 @@ const QuizSession: React.FC = () => {
         {quiz.questions.length === 0 ? (
           <p className={`${TOKENS.typography.lg} text-[#ef4444]`}>{t('noQuestions')}</p>
         ) : (
-          <Button variant="primary" size="xl" onClick={startQuiz}>
-            <Icons.Play /> <span className="ml-3">{t('startQuiz')}</span>
-          </Button>
+          <div className="flex flex-col items-center gap-4">
+            <Button variant="primary" size="xl" onClick={startQuiz}>
+              <Icons.Play /> <span className="ml-3">{t('startQuiz')}</span>
+            </Button>
+            {previousSubmission && !showPreviousResults && (
+              <button
+                onClick={() => setShowPreviousResults(true)}
+                className={`${TOKENS.typography.sm} text-[#08b8fb] hover:underline`}
+              >
+                {t('viewPrevious')}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Previous Submission Results */}
+        {showPreviousResults && previousSubmission && (
+          <div className="w-full max-w-2xl space-y-4 text-left">
+            <h3 className={`${TOKENS.typography.xl} text-[#091e42]`}>{t('previousResults')}</h3>
+            <div className="p-4 bg-[#f8fafc] rounded-xl border border-[#e2e8f0]">
+              <div className="flex justify-center gap-6 mb-4">
+                <div className="text-center">
+                  <div className={`${TOKENS.typography.title} ${
+                    Math.round((previousSubmission.correctAnswers / previousSubmission.totalQuestions) * 100) >= 70 ? 'text-[#22c55e]' : 'text-[#f59e0b]'
+                  }`}>
+                    {Math.round((previousSubmission.correctAnswers / previousSubmission.totalQuestions) * 100)}%
+                  </div>
+                  <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('score')}</div>
+                </div>
+                <div className="text-center">
+                  <div className={`${TOKENS.typography.title} text-[#091e42]`}>{previousSubmission.correctAnswers}/{previousSubmission.totalQuestions}</div>
+                  <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('correct')}</div>
+                </div>
+                <div className="text-center">
+                  <div className={`${TOKENS.typography.title} text-[#f59e0b]`}>{previousSubmission.totalXP}</div>
+                  <div className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('totalXP')}</div>
+                </div>
+              </div>
+              {previousSubmission.questions.map((q, i) => (
+                <div
+                  key={i}
+                  className={`p-3 mb-2 border rounded-lg ${q.correct ? 'border-[#22c55e]/30 bg-[#22c55e]/5' : 'border-[#ef4444]/30 bg-[#ef4444]/5'}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className={`mt-0.5 ${q.correct ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                      {q.correct ? <Icons.CircleCheck /> : <Icons.CircleX />}
+                    </span>
+                    <div className="flex-1">
+                      <p className={`${TOKENS.typography.sm} font-medium text-[#091e42]`}>{q.question}</p>
+                      {!q.correct && (
+                        <p className={`${TOKENS.typography.sm} mt-1 text-[#22c55e]`}>
+                          {t('correctAnswerIs')}: {q.correctAnswer}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     );
@@ -687,10 +819,20 @@ const QuizSession: React.FC = () => {
             <XPBar totalXP={gameState.totalXP} level={gameState.level} showLevelUp={false} />
           </div>
 
-          <div className={`flex justify-center gap-4 mt-8 ${revealedStats >= 5 ? 'animate-fade-in-up' : 'opacity-0'}`}>
+          <div className={`flex flex-col items-center gap-3 mt-8 ${revealedStats >= 5 ? 'animate-fade-in-up' : 'opacity-0'}`}>
             <Button variant="primary" size="lg" onClick={startQuiz}>
               <Icons.RotateCcw /> <span className="ml-2">{t('retake')}</span>
             </Button>
+            {submissionSaved && (
+              <span className={`${TOKENS.typography.sm} text-[#22c55e] flex items-center gap-1`}>
+                <Icons.CircleCheck /> {t('submissionSaved')}
+              </span>
+            )}
+            {submissionError && (
+              <span className={`${TOKENS.typography.sm} text-[#ef4444] flex items-center gap-1`}>
+                <Icons.CircleX /> {t('cloudError')}
+              </span>
+            )}
           </div>
         </div>
 

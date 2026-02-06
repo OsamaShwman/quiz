@@ -6,6 +6,7 @@ import { Layout } from './components/Layout';
 
 const QuizEditor = lazy(() => import('./pages/QuizEditor'));
 const QuizSession = lazy(() => import('./pages/QuizSession'));
+const SubmissionReview = lazy(() => import('./pages/SubmissionReview'));
 
 const LoadingFallback = () => (
   <div className="flex items-center justify-center min-h-[60vh]">
@@ -30,6 +31,8 @@ const RedirectHandler: React.FC = () => {
 
       if (mode === 'student' || mode === 'view') {
         navigate(`/view`);
+      } else if (mode === 'teacher' && cloudConfig.submissionId) {
+        navigate(`/review`);
       } else {
         navigate(`/edit`);
       }
@@ -46,6 +49,7 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/edit" element={<QuizEditor />} />
         <Route path="/view" element={<QuizSession />} />
+        <Route path="/review" element={<SubmissionReview />} />
         <Route path="/" element={<div className="p-10 text-center text-slate-400">Please provide an ID and Token in the URL.</div>} />
       </Routes>
     </Suspense>
