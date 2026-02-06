@@ -8,8 +8,8 @@ export type Language = 'en' | 'ar';
 export const translations = {
   en: {
     quiz: 'Quiz',
-    quizEditor: 'Quiz Editor',
-    quizSession: 'Quiz Session',
+    quizEditor: 'String Quiz - Editor',
+    quizSession: 'String Quiz',
     createQuiz: 'Create Quiz',
     editQuiz: 'Edit Quiz',
     quizTitle: 'Quiz Title',
@@ -109,8 +109,8 @@ export const translations = {
   },
   ar: {
     quiz: 'اختبار',
-    quizEditor: 'محرر الاختبار',
-    quizSession: 'جلسة الاختبار',
+    quizEditor: 'String Quiz - المحرر',
+    quizSession: 'String Quiz',
     createQuiz: 'انشاء اختبار',
     editQuiz: 'تعديل الاختبار',
     quizTitle: 'عنوان الاختبار',
