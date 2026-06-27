@@ -1,38 +1,65 @@
-import { QuizMode, StreakEffect } from '../types';
+import { QuizMode, StreakEffect, QuestionDifficulty } from '../types';
 
 // XP Configuration
-const BASE_XP = 100;
-const STREAK_BONUS_PER = 20;
-const SPEED_BONUS_FAST = 30; // < 50% time used
-const SPEED_BONUS_MEDIUM = 15; // < 75% time used
+// Base XP per difficulty level
+const XP_BY_DIFFICULTY: Record<QuestionDifficulty, number> = {
+  easy: 10,
+  medium: 15,
+  hard: 20,
+  super_hard: 30,
+};
+const DEFAULT_DIFFICULTY: QuestionDifficulty = 'medium';
+const HINT_PENALTY = 0.3;       // -30% if hint was used
+const FIRST_TRY_BONUS = 0.1;    // +10% if this is the student's first attempt at the quiz
+const STREAK_BONUS_PER = 2;     // small streak bonus per consecutive correct
+const SPEED_BONUS_FAST = 3;     // < 50% time used
+const SPEED_BONUS_MEDIUM = 1;   // < 75% time used
 
 // Level thresholds (cumulative XP)
 const LEVEL_THRESHOLDS = [0, 300, 700, 1200, 1800, 2500, 3200, 3900, 4700, 5600, 6600, 7700, 8900, 10200];
 
-export function calculateXP(
-  correct: boolean,
-  streak: number,
-  timeTaken: number | undefined,
-  timeAllowed: number | undefined,
-  mode: QuizMode
-): number {
-  if (!correct) return 0;
+export interface XPCalcArgs {
+  correct: boolean;
+  difficulty?: QuestionDifficulty;
+  hintUsed?: boolean;
+  isFirstAttempt?: boolean; // first time taking this quiz (not a retake)
+  streak?: number;
+  timeTaken?: number;
+  timeAllowed?: number;
+  mode?: QuizMode;
+}
 
-  let xp = BASE_XP;
+/**
+ * Calculate XP earned for a question.
+ * Base value comes from question difficulty:
+ *   easy=10, medium=15, hard=20, super_hard=30
+ * Modifiers:
+ *   - hintUsed: -30%
+ *   - isFirstAttempt + correct: +10%
+ *   - small streak/speed bonuses on top
+ */
+export function calculateXP(args: XPCalcArgs): number {
+  if (!args.correct) return 0;
 
-  // Streak bonus
-  if (streak > 0) {
-    xp += streak * STREAK_BONUS_PER;
-  }
+  const diff = args.difficulty || DEFAULT_DIFFICULTY;
+  let xp = XP_BY_DIFFICULTY[diff];
 
-  // Speed bonus (only in timed mode)
-  if (mode === 'timed' && timeTaken !== undefined && timeAllowed !== undefined && timeAllowed > 0) {
-    const pctUsed = timeTaken / timeAllowed;
-    if (pctUsed < 0.5) {
-      xp += SPEED_BONUS_FAST;
-    } else if (pctUsed < 0.75) {
-      xp += SPEED_BONUS_MEDIUM;
-    }
+  // Apply hint penalty
+  if (args.hintUsed) xp = xp * (1 - HINT_PENALTY);
+  // First-try bonus
+  if (args.isFirstAttempt) xp = xp * (1 + FIRST_TRY_BONUS);
+
+  // Round after modifiers so the base feels predictable
+  xp = Math.round(xp);
+
+  // Small streak bonus (kept minor since base is small now)
+  if (args.streak && args.streak > 0) xp += args.streak * STREAK_BONUS_PER;
+
+  // Speed bonus only in timed mode
+  if (args.mode === 'timed' && args.timeTaken !== undefined && args.timeAllowed && args.timeAllowed > 0) {
+    const pctUsed = args.timeTaken / args.timeAllowed;
+    if (pctUsed < 0.5) xp += SPEED_BONUS_FAST;
+    else if (pctUsed < 0.75) xp += SPEED_BONUS_MEDIUM;
   }
 
   return xp;

@@ -10,10 +10,9 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [react()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-      },
+      // GEMINI_API_KEY is intentionally NOT defined here. The key now lives only
+      // on Cloudflare (set as a Pages secret) and is used server-side by the
+      // /api/gemini/* Pages Functions. The frontend bundle contains no API key.
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

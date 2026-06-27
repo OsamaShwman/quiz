@@ -1,8 +1,15 @@
 export type QuestionType = 'mcq' | 'true_false' | 'fill_blank' | 'matching' | 'multi_select';
 export type QuizStatus = 'draft' | 'published';
 export type QuizMode = 'timed' | 'self_paced';
+export type QuestionDifficulty = 'easy' | 'medium' | 'hard' | 'super_hard';
 
-export interface MCQQuestion {
+interface QuestionMeta {
+  difficulty?: QuestionDifficulty;
+  sourceCitation?: string;
+  hint?: string;
+}
+
+export interface MCQQuestion extends QuestionMeta {
   id: string;
   type: 'mcq';
   question: string;
@@ -10,14 +17,14 @@ export interface MCQQuestion {
   correctIndex: 0 | 1 | 2 | 3;
 }
 
-export interface TrueFalseQuestion {
+export interface TrueFalseQuestion extends QuestionMeta {
   id: string;
   type: 'true_false';
   question: string;
   correctAnswer: boolean;
 }
 
-export interface FillBlankQuestion {
+export interface FillBlankQuestion extends QuestionMeta {
   id: string;
   type: 'fill_blank';
   question: string;
@@ -30,14 +37,14 @@ export interface MatchingPair {
   right: string;
 }
 
-export interface MatchingQuestion {
+export interface MatchingQuestion extends QuestionMeta {
   id: string;
   type: 'matching';
   question: string;
   pairs: MatchingPair[];
 }
 
-export interface MultiSelectQuestion {
+export interface MultiSelectQuestion extends QuestionMeta {
   id: string;
   type: 'multi_select';
   question: string;
@@ -52,6 +59,7 @@ export interface QuizSettings {
   timePerQuestion: number; // seconds
   shuffleQuestions: boolean;
   showCorrectAfterEach: boolean;
+  adaptive?: boolean;
 }
 
 export interface QuizData {
@@ -144,4 +152,5 @@ export const DEFAULT_SETTINGS: QuizSettings = {
   timePerQuestion: 30,
   shuffleQuestions: false,
   showCorrectAfterEach: true,
+  adaptive: false,
 };

@@ -46,9 +46,9 @@ export const TOKENS = {
     flip: 'transition-transform duration-500'
   },
   typography: {
-    display: 'text-[3.75rem] font-bold leading-[1.1] tracking-tight',
-    title: 'text-[1.875rem] font-bold leading-[1.1] tracking-tight',
-    xl: 'text-[1.25rem] font-bold leading-[1.1]',
+    display: 'text-[2.25rem] sm:text-[3.75rem] font-bold leading-[1.1] tracking-tight',
+    title: 'text-[1.5rem] sm:text-[1.875rem] font-bold leading-[1.1] tracking-tight',
+    xl: 'text-[1.125rem] sm:text-[1.25rem] font-bold leading-[1.1]',
     lg: 'text-[1.125rem] font-medium leading-[1.5]',
     base: 'text-[1rem] font-normal leading-[1.5]',
     sm: 'text-[0.875rem] font-normal leading-[1.5]',

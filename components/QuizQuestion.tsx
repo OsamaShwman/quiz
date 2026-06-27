@@ -2,15 +2,18 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Question, MCQQuestion, TrueFalseQuestion, FillBlankQuestion, MatchingQuestion, MultiSelectQuestion } from '../types';
 import { useAppStore } from '../store';
 import { TOKENS, Icons } from '../constants';
+import { MathText } from './MathText';
 
 interface QuizQuestionProps {
   question: Question;
   onAnswer: (answer: string | number | boolean | number[] | Record<string, string>) => void;
   showResult?: { correct: boolean; correctAnswer: string } | null;
   disabled?: boolean;
+  /** Called when the student requests a hint. Should return the hint text. */
+  onHintRequested?: () => Promise<string>;
 }
 
-export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, showResult, disabled }) => {
+export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, showResult, disabled, onHintRequested }) => {
   const { t } = useAppStore();
   const [selectedMCQ, setSelectedMCQ] = useState<number | null>(null);
   const [selectedTF, setSelectedTF] = useState<boolean | null>(null);
@@ -19,6 +22,8 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
   const [selectedLeft, setSelectedLeft] = useState<string | null>(null);
   const [selectedMulti, setSelectedMulti] = useState<number[]>([]);
   const [multiSubmitted, setMultiSubmitted] = useState(false);
+  const [hintText, setHintText] = useState<string | null>(null);
+  const [loadingHint, setLoadingHint] = useState(false);
 
   // Reset state when question changes
   useEffect(() => {
@@ -29,7 +34,22 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
     setSelectedLeft(null);
     setSelectedMulti([]);
     setMultiSubmitted(false);
+    setHintText(null);
+    setLoadingHint(false);
   }, [question.id]);
+
+  const handleHintClick = async () => {
+    if (!onHintRequested || hintText || loadingHint) return;
+    setLoadingHint(true);
+    try {
+      const hint = await onHintRequested();
+      setHintText(hint || '');
+    } catch {
+      setHintText(t('aiError'));
+    } finally {
+      setLoadingHint(false);
+    }
+  };
 
   // Shuffled MCQ option indices (e.g. [2,0,3,1] means display slot 0 shows original option 2)
   const shuffledMCQIndices = useMemo(() => {
@@ -109,13 +129,13 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
               onAnswer(origIdx);
             }}
             disabled={disabled}
-            className={`w-full text-start px-5 py-4 border rounded-xl transition-all ${bgClass} ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
+            className={`w-full text-start px-3 sm:px-5 py-3 sm:py-4 border rounded-xl transition-all min-h-[52px] ${bgClass} ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
           >
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
               <span className="w-8 h-8 rounded-full border-2 border-current flex items-center justify-center text-sm font-bold shrink-0">
                 {String.fromCharCode(65 + displayIdx)}
               </span>
-              <span className={TOKENS.typography.base}>{opt}</span>
+              <span className={TOKENS.typography.base}><MathText>{opt}</MathText></span>
               {showResult && origIdx === q.correctIndex && (
                 <span className="ml-auto text-[#22c55e]"><Icons.CircleCheck /></span>
               )}
@@ -130,7 +150,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
   );
 
   const renderTrueFalse = (q: TrueFalseQuestion) => (
-    <div className="flex gap-4">
+    <div className="flex gap-3 sm:gap-4">
       {[true, false].map(val => {
         let bgClass = 'bg-white border-[#e2e8f0] hover:border-[#cbd5e1] hover:bg-[#f8fafc]';
         if (selectedTF === val) {
@@ -167,9 +187,15 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
 
   const renderFillBlank = (q: FillBlankQuestion) => (
     <div className="space-y-4">
-      <div className="flex gap-3">
+      <div className="flex flex-col sm:flex-row gap-3">
         <input
           type="text"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="sentences"
+          spellCheck={false}
+          dir="auto"
           value={fillAnswer}
           onChange={e => setFillAnswer(e.target.value)}
           onKeyDown={e => {
@@ -212,10 +238,14 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
 
     return (
       <div className="space-y-4">
-        <p className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('matchInstruction')}</p>
-        <div className="grid grid-cols-2 gap-6">
-          {/* Left column (shuffled) */}
-          <div className="space-y-3">
+        <p className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('matchInstructionV2')}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+          {/* Items column (shuffled left) */}
+          <div className="space-y-3 p-3 sm:p-0 bg-[#fdf2f8] sm:bg-transparent rounded-xl border-2 border-dashed border-[#ed3b91]/30 sm:border-0 sm:border-none">
+            <div className="flex items-center gap-2 sm:hidden mb-1">
+              <span className="w-6 h-6 rounded-full bg-[#ed3b91] text-white text-[0.7rem] font-bold flex items-center justify-center">1</span>
+              <span className={`${TOKENS.typography.xs} font-bold text-[#ed3b91]`}>{t('matchTapItem')}</span>
+            </div>
             {shuffledLeftItems.map((leftText, i) => {
               const isMatched = matchAnswers[leftText] !== undefined;
               const isSelected = selectedLeft === leftText;
@@ -240,10 +270,10 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
                   disabled={disabled || isMatched}
                   className={`w-full text-start px-4 py-3 border rounded-xl transition-all ${bgClass} ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
                 >
-                  <span className={TOKENS.typography.base}>{leftText}</span>
+                  <span className={TOKENS.typography.base}><MathText>{leftText}</MathText></span>
                   {isMatched && (
                     <span className={`${TOKENS.typography.sm} ml-2 text-[#08b8fb]`}>
-                      &rarr; {matchAnswers[leftText]}
+                      &rarr; <MathText>{matchAnswers[leftText]}</MathText>
                     </span>
                   )}
                 </button>
@@ -251,8 +281,12 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
             })}
           </div>
 
-          {/* Right column */}
-          <div className="space-y-3">
+          {/* Match-with column (shuffled right) */}
+          <div className="space-y-3 p-3 sm:p-0 bg-[#eff6ff] sm:bg-transparent rounded-xl border-2 border-dashed border-[#08b8fb]/30 sm:border-0 sm:border-none">
+            <div className="flex items-center gap-2 sm:hidden mb-1">
+              <span className="w-6 h-6 rounded-full bg-[#08b8fb] text-white text-[0.7rem] font-bold flex items-center justify-center">2</span>
+              <span className={`${TOKENS.typography.xs} font-bold text-[#08b8fb]`}>{t('matchTapPair')}</span>
+            </div>
             {shuffledRightOptions.map((right, i) => {
               const isUsed = Object.values(matchAnswers).includes(right);
               let bgClass = 'bg-white border-[#e2e8f0] hover:border-[#cbd5e1]';
@@ -274,7 +308,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
                   disabled={disabled || isUsed || !selectedLeft}
                   className={`w-full text-start px-4 py-3 border rounded-xl transition-all ${bgClass} ${disabled || isUsed || !selectedLeft ? 'cursor-default' : 'cursor-pointer'}`}
                 >
-                  <span className={TOKENS.typography.base}>{right}</span>
+                  <span className={TOKENS.typography.base}><MathText>{right}</MathText></span>
                 </button>
               );
             })}
@@ -327,7 +361,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
                   );
                 }}
                 disabled={disabled || multiSubmitted}
-                className={`w-full text-start px-5 py-4 border rounded-xl transition-all ${bgClass} ${disabled || multiSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
+                className={`w-full text-start px-3 sm:px-5 py-3 sm:py-4 border rounded-xl transition-all min-h-[52px] ${bgClass} ${disabled || multiSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
               >
                 <div className="flex items-center gap-4">
                   {/* Checkbox */}
@@ -338,7 +372,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     )}
                   </span>
-                  <span className={TOKENS.typography.base}>{opt}</span>
+                  <span className={TOKENS.typography.base}><MathText>{opt}</MathText></span>
                   {multiSubmitted && showResult && isCorrectOption && (
                     <span className="ml-auto text-[#22c55e]"><Icons.CircleCheck /></span>
                   )}
@@ -374,7 +408,32 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
 
   return (
     <div className="space-y-6">
-      <h2 className={`${TOKENS.typography.xl} text-[#091e42]`}>{question.question}</h2>
+      <div className="flex items-start justify-between gap-4">
+        <h2 className={`${TOKENS.typography.xl} text-[#091e42] flex-1`}><MathText block>{question.question}</MathText></h2>
+        {onHintRequested && !showResult && !disabled && (
+          <button
+            onClick={handleHintClick}
+            disabled={!!hintText || loadingHint}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f59e0b]/10 text-[#d97706] text-[0.8rem] font-semibold hover:bg-[#f59e0b]/20 transition-colors disabled:opacity-50"
+            title={t('hintCost')}
+          >
+            {loadingHint ? (
+              <>
+                <div className="w-3 h-3 border-2 border-[#d97706] border-t-transparent rounded-full animate-spin"></div>
+                {t('loading')}
+              </>
+            ) : (
+              <>💡 {hintText ? t('hintShown') : t('showHint')}</>
+            )}
+          </button>
+        )}
+      </div>
+      {hintText && (
+        <div className="px-4 py-3 bg-[#fef9c3] border-l-4 border-[#f59e0b] rounded">
+          <div className={`${TOKENS.typography.xs} font-bold text-[#d97706] mb-1 uppercase tracking-wider`}>{t('hint')}</div>
+          <div className={`${TOKENS.typography.base} text-[#92400e]`}><MathText>{hintText}</MathText></div>
+        </div>
+      )}
       {question.type === 'mcq' && renderMCQ(question)}
       {question.type === 'true_false' && renderTrueFalse(question)}
       {question.type === 'fill_blank' && renderFillBlank(question)}

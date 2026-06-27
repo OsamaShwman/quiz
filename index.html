@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>String Quiz</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;500;600;700;900&display=swap" rel="stylesheet">
@@ -112,11 +114,28 @@
 
     [dir="rtl"] .animate-slide-in-right { animation-name: slideInLeft; }
     [dir="rtl"] .animate-slide-in-left { animation-name: slideInRight; }
+
+    /* Print styles */
+    @media print {
+      body { background: white !important; margin: 0; }
+      .bg-grain, .no-print { display: none !important; }
+      /* During print: hide the main app, show the portal */
+      body.printing #root { display: none !important; }
+      body.printing #print-portal { display: block !important; padding: 20px 24px; }
+      .print-question { break-inside: avoid; page-break-inside: avoid; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; }
+      .print-answer-key { display: none; }
+      body.print-answers .print-answer-key { display: block !important; color: #16a34a; font-weight: 600; margin-top: 0.5rem; }
+      .print-citation { color: #6882a9; font-size: 0.85rem; font-style: italic; }
+      @page { margin: 0.6in; }
+    }
+    /* On screen, the portal is hidden */
+    #print-portal { display: none; }
   </style>
 </head>
 <body>
   <div class="bg-grain"></div>
   <div id="root"></div>
+  <div id="print-portal"></div>
   <script type="module" src="./index.tsx"></script>
 </body>
 </html>

@@ -3,6 +3,7 @@ import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { AppProvider, useAppStore } from './store';
 import { Layout } from './components/Layout';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const QuizEditor = lazy(() => import('./pages/QuizEditor'));
 const QuizSession = lazy(() => import('./pages/QuizSession'));
@@ -58,13 +59,17 @@ const AppRoutes = () => {
 
 const App: React.FC = () => {
   return (
-    <AppProvider>
-      <Router>
-        <Layout>
-          <AppRoutes />
-        </Layout>
-      </Router>
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <Router>
+          <Layout>
+            <ErrorBoundary>
+              <AppRoutes />
+            </ErrorBoundary>
+          </Layout>
+        </Router>
+      </AppProvider>
+    </ErrorBoundary>
   );
 };
 

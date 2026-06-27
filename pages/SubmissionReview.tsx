@@ -4,6 +4,7 @@ import { SubmissionContent, SubmissionResponse } from '../types';
 import { getSubmission } from '../api';
 import { Icons, TOKENS } from '../constants';
 import { StarRating } from '../components/StarRating';
+import { MathText } from '../components/MathText';
 
 const SubmissionReview: React.FC = () => {
   const { cloudConfig, t } = useAppStore();
@@ -23,7 +24,9 @@ const SubmissionReview: React.FC = () => {
       .then(sub => {
         setSubmission(sub);
         try {
-          const parsed = typeof sub.content === 'string' ? JSON.parse(sub.content) : sub.content;
+          let parsed = typeof sub.content === 'string' ? JSON.parse(sub.content) : sub.content;
+          // Handle double-stringified content from the API
+          if (typeof parsed === 'string') parsed = JSON.parse(parsed);
           setContent(parsed);
         } catch {
           setError('Failed to parse submission data');
@@ -171,7 +174,7 @@ const SubmissionReview: React.FC = () => {
                 </span>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <p className={`${TOKENS.typography.base} font-medium text-[#091e42]`}>{q.question}</p>
+                    <p className={`${TOKENS.typography.base} font-medium text-[#091e42]`}><MathText>{q.question}</MathText></p>
                     <div className="flex items-center gap-3 shrink-0 ml-3">
                       {stars > 0 && <StarRating stars={stars} size={16} />}
                       {xp > 0 && (
@@ -181,12 +184,12 @@ const SubmissionReview: React.FC = () => {
                   </div>
                   {displayAnswer && (
                     <p className={`${TOKENS.typography.sm} mt-1 ${q.correct ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
-                      {t('yourAnswer')}: {displayAnswer}
+                      {t('yourAnswer')}: <MathText>{displayAnswer}</MathText>
                     </p>
                   )}
                   {!q.correct && (
                     <p className={`${TOKENS.typography.sm} mt-1 text-[#22c55e]`}>
-                      {t('correctAnswerIs')}: {q.correctAnswer}
+                      {t('correctAnswerIs')}: <MathText>{q.correctAnswer}</MathText>
                     </p>
                   )}
                 </div>

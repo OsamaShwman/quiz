@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '../store';
 import { Question, QuestionResult, QuizData, GameState, StreakEffect, SubmissionContent, SubmissionQuestionData, MCQQuestion, MatchingQuestion, MultiSelectQuestion } from '../types';
-import { submitQuizResult, getOwnSubmission } from '../api';
+import { submitQuizResult, getOwnSubmission, getStudentLevel, StudentLevelInfo, awardXP } from '../api';
+import { getQuestionHint } from '../aiService';
 import { QuizQuestion } from '../components/QuizQuestion';
 import { TimerBar } from '../components/TimerBar';
 import { Button } from '../components/Button';
@@ -110,12 +111,15 @@ const XPFloater: React.FC<{ xp: number; show: boolean }> = ({ xp, show }) => {
 };
 
 const QuizSession: React.FC = () => {
-  const { state, cloudConfig, loadCloudQuiz, isLoading, t, language } = useAppStore();
+  const { state, cloudConfig, loadCloudQuiz, isLoading, t, language, loadError } = useAppStore();
   const quiz = state.quizzes[0] as QuizData | undefined;
 
   const [phase, setPhase] = useState<SessionPhase>('start');
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  // Adaptive difficulty state
+  const adaptiveLevelRef = useRef<number>(1); // 0=easy, 1=medium, 2=hard, 3=super_hard
+  const adaptiveStreakRef = useRef<{ correct: number; wrong: number }>({ correct: 0, wrong: 0 });
   const [results, setResults] = useState<QuestionResult[]>([]);
   const [showResult, setShowResult] = useState<{ correct: boolean; correctAnswer: string } | null>(null);
   const [answered, setAnswered] = useState(false);
@@ -137,8 +141,16 @@ const QuizSession: React.FC = () => {
   const [submissionSaved, setSubmissionSaved] = useState(false);
   const [submissionError, setSubmissionError] = useState(false);
   const submissionSentRef = useRef(false);
+  // Did we successfully credit the student's main account XP this session?
+  const [xpAwarded, setXpAwarded] = useState<'pending' | 'success' | 'failed' | 'skipped'>('pending');
   const [previousSubmission, setPreviousSubmission] = useState<SubmissionContent | null>(null);
   const [showPreviousResults, setShowPreviousResults] = useState(false);
+  const [studentLevel, setStudentLevel] = useState<StudentLevelInfo | null>(null);
+  // Set ONCE at quiz start. true if this is the student's very first attempt
+  // at this quiz. Retakes get no main-account XP and no first-try bonus.
+  const isFirstAttemptRef = useRef<boolean>(true);
+  // Map: questionId -> true if the student used a hint on it
+  const hintsUsedRef = useRef<Record<string, boolean>>({});
 
   // Animated results state
   const [displayPct, setDisplayPct] = useState(0);
@@ -147,12 +159,22 @@ const QuizSession: React.FC = () => {
   useEffect(() => {
     if (cloudConfig.id && cloudConfig.token) {
       loadCloudQuiz();
+      // Fetch student level/XP/avatar from main platform.
+      // Skip when a teacher is previewing the student view — they're not a
+      // student and the endpoint would return 403 NOT_A_STUDENT anyway.
+      if (cloudConfig.mode !== 'teacher') {
+        getStudentLevel(cloudConfig.token).then(info => {
+          if (info) setStudentLevel(info);
+        });
+      }
       // Check for previous submission
       getOwnSubmission(cloudConfig.id, cloudConfig.token)
         .then(sub => {
           if (sub && sub.content) {
             try {
-              const content = typeof sub.content === 'string' ? JSON.parse(sub.content) : sub.content;
+              let content = typeof sub.content === 'string' ? JSON.parse(sub.content) : sub.content;
+              // Handle double-stringified content from the API
+              if (typeof content === 'string') content = JSON.parse(content);
               setPreviousSubmission(content);
             } catch { /* ignore parse errors */ }
           }
@@ -163,7 +185,24 @@ const QuizSession: React.FC = () => {
 
   const startQuiz = () => {
     if (!quiz) return;
-    const qs = quiz.settings.shuffleQuestions ? shuffleArray(quiz.questions) : [...quiz.questions];
+    // Lock in first-attempt status: anyone with a previous submission is retaking.
+    isFirstAttemptRef.current = !previousSubmission;
+    hintsUsedRef.current = {};
+    let qs: Question[];
+    if (quiz.settings.adaptive) {
+      // Adaptive mode: order questions by difficulty (easy -> super_hard).
+      // Questions without difficulty are treated as 'medium'.
+      const order: Record<string, number> = { easy: 0, medium: 1, hard: 2, super_hard: 3 };
+      qs = [...quiz.questions].sort((a, b) => {
+        const da = order[a.difficulty || 'medium'];
+        const db = order[b.difficulty || 'medium'];
+        return da - db;
+      });
+      adaptiveLevelRef.current = 1; // start at medium
+      adaptiveStreakRef.current = { correct: 0, wrong: 0 };
+    } else {
+      qs = quiz.settings.shuffleQuestions ? shuffleArray(quiz.questions) : [...quiz.questions];
+    }
     setQuestions(qs);
     setCurrentIndex(0);
     setResults([]);
@@ -183,6 +222,7 @@ const QuizSession: React.FC = () => {
     setSubmissionSaved(false);
     setSubmissionError(false);
     submissionSentRef.current = false;
+    setXpAwarded('pending');
     setShowPreviousResults(false);
     questionStartTime.current = Date.now();
   };
@@ -199,13 +239,16 @@ const QuizSession: React.FC = () => {
 
     // Calculate gamification
     const newStreak = result.correct ? gameState.streak + 1 : 0;
-    const xpEarned = calculateXP(
-      result.correct,
-      result.correct ? gameState.streak : 0, // use pre-answer streak for bonus calc
+    const xpEarned = calculateXP({
+      correct: result.correct,
+      difficulty: currentQ.difficulty,
+      hintUsed: hintsUsedRef.current[currentQ.id] === true,
+      isFirstAttempt: isFirstAttemptRef.current,
+      streak: result.correct ? gameState.streak : 0, // pre-answer streak
       timeTaken,
-      quiz.settings.mode === 'timed' ? quiz.settings.timePerQuestion : undefined,
-      quiz.settings.mode
-    );
+      timeAllowed: quiz.settings.mode === 'timed' ? quiz.settings.timePerQuestion : undefined,
+      mode: quiz.settings.mode,
+    });
     const starsEarned = calculateStars(
       result.correct,
       timeTaken,
@@ -321,11 +364,51 @@ const QuizSession: React.FC = () => {
   }, [answered, questions, currentIndex, quiz]);
 
   const advanceQuestion = () => {
-    if (currentIndex + 1 >= questions.length) {
-      setPhase('results');
-      return;
+    // Adaptive difficulty: pick next question based on performance
+    if (quiz?.settings.adaptive) {
+      // Update adaptive level based on the just-recorded result
+      const last = results[results.length - 1];
+      if (last) {
+        if (last.correct) {
+          adaptiveStreakRef.current.correct += 1;
+          adaptiveStreakRef.current.wrong = 0;
+          if (adaptiveStreakRef.current.correct >= 2) {
+            adaptiveLevelRef.current = Math.min(3, adaptiveLevelRef.current + 1);
+            adaptiveStreakRef.current.correct = 0;
+          }
+        } else {
+          adaptiveStreakRef.current.wrong += 1;
+          adaptiveStreakRef.current.correct = 0;
+          if (adaptiveStreakRef.current.wrong >= 2) {
+            adaptiveLevelRef.current = Math.max(0, adaptiveLevelRef.current - 1);
+            adaptiveStreakRef.current.wrong = 0;
+          }
+        }
+      }
+      // Find next unseen question closest to target difficulty
+      const seenIds = new Set(results.map(r => r.questionId));
+      const remaining = questions.filter(q => !seenIds.has(q.id));
+      if (remaining.length === 0) {
+        setPhase('results');
+        return;
+      }
+      const order: Record<string, number> = { easy: 0, medium: 1, hard: 2, super_hard: 3 };
+      const target = adaptiveLevelRef.current;
+      remaining.sort((a, b) => {
+        const da = Math.abs(order[a.difficulty || 'medium'] - target);
+        const db = Math.abs(order[b.difficulty || 'medium'] - target);
+        return da - db;
+      });
+      const nextQ = remaining[0];
+      const nextIdx = questions.findIndex(q => q.id === nextQ.id);
+      setCurrentIndex(nextIdx);
+    } else {
+      if (currentIndex + 1 >= questions.length) {
+        setPhase('results');
+        return;
+      }
+      setCurrentIndex(prev => prev + 1);
     }
-    setCurrentIndex(prev => prev + 1);
     setShowResult(null);
     setAnswered(false);
     setTimerKey(prev => prev + 1);
@@ -477,7 +560,65 @@ const QuizSession: React.FC = () => {
     };
 
     submitQuizResult(cloudConfig.id, cloudConfig.token, content, scorePct)
-      .then(() => setSubmissionSaved(true))
+      .then(response => {
+        setSubmissionSaved(true);
+
+        // Award XP to the student's main account, but only when:
+        //  1. This is the student's first attempt at this quiz (not a retake)
+        //  2. They actually earned XP this session
+        //  3. The current viewer is not a teacher previewing the student view
+        //  4. We successfully fetched the student profile (proves they're a real student)
+        if (cloudConfig.mode === 'teacher') {
+          console.log('[XP] Skipping award — teacher is previewing the student view');
+          setXpAwarded('skipped');
+          return;
+        }
+        // NOTE: We deliberately do NOT gate on `studentLevel` being non-null.
+        // A transient failure of the profile fetch should not punish a real
+        // student by silently dropping their XP. The Steamhub backend will
+        // reject non-students (NOT_A_STUDENT) and reject duplicate awards via
+        // the (student, quiz_id) DB unique constraint. We try and let it decide.
+        if (!isFirstAttemptRef.current) {
+          console.log('[XP] Skipping award — student is retaking the quiz');
+          setXpAwarded('skipped');
+          return;
+        }
+        if (gameState.totalXP <= 0) {
+          console.log('[XP] Skipping award — no XP earned this session');
+          setXpAwarded('skipped');
+          return;
+        }
+
+        const submissionIdNum =
+          response && typeof response.id === 'number' ? response.id : undefined;
+
+        const spaceIdNum = cloudConfig.spaceId ? Number(cloudConfig.spaceId) : undefined;
+
+        awardXP(cloudConfig.token, gameState.totalXP, {
+          quiz_id: cloudConfig.id,
+          submission_id: submissionIdNum,
+          space_id: Number.isFinite(spaceIdNum as number) ? (spaceIdNum as number) : undefined,
+        })
+          .then(result => {
+            if (result.success) {
+              if (result.idempotentReplay) {
+                // Backend already credited this submission in a previous call
+                console.log('[XP] Already awarded earlier (idempotent replay)');
+                setXpAwarded('skipped');
+              } else {
+                console.log(`[XP] Awarded successfully: +${result.xpAdded} XP`);
+                setXpAwarded('success');
+              }
+            } else {
+              console.warn('[XP] Award failed:', result.error, 'status:', result.status);
+              setXpAwarded('failed');
+            }
+          })
+          .catch(err => {
+            console.warn('[XP] Award threw:', err);
+            setXpAwarded('failed');
+          });
+      })
       .catch(() => setSubmissionError(true));
   }, [phase]);
 
@@ -524,6 +665,20 @@ const QuizSession: React.FC = () => {
     );
   }
 
+  // Cloud load failed AND no quiz available — show graceful error with retry
+  if (loadError && !quiz) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4 px-4">
+        <div className="text-[#ef4444]"><Icons.CircleX /></div>
+        <h2 className={`${TOKENS.typography.xl} text-[#091e42]`}>{t('cloudError')}</h2>
+        <p className={`${TOKENS.typography.base} text-[#6882a9] max-w-sm`}>{loadError}</p>
+        <Button variant="primary" size="md" onClick={() => loadCloudQuiz()}>
+          {t('retry')}
+        </Button>
+      </div>
+    );
+  }
+
   if (!quiz) {
     return <div className="text-center py-20 text-[#6882a9]">{t('loading')}</div>;
   }
@@ -532,6 +687,26 @@ const QuizSession: React.FC = () => {
   if (phase === 'start') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8">
+        {studentLevel && (
+          <div className="flex items-center gap-4 bg-gradient-to-r from-[#ed3b91]/5 to-[#08b8fb]/5 border border-[#e2e8f0] rounded-2xl px-5 py-3">
+            <img
+              src={studentLevel.avatar || 'https://d259v3oj2jq9kl.cloudfront.net/templates/images/default.jpg'}
+              alt="avatar"
+              className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm"
+              onError={e => { (e.currentTarget as HTMLImageElement).src = 'https://d259v3oj2jq9kl.cloudfront.net/templates/images/default.jpg'; }}
+            />
+            <div className="text-start">
+              <div className="flex items-center gap-1.5">
+                <span className={`${TOKENS.typography.sm} text-[#6882a9]`}>{t('level')}</span>
+                <span className={`${TOKENS.typography.lg} font-bold text-[#091e42]`}>{studentLevel.level}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[#f59e0b]">
+                <Icons.Zap />
+                <span className={`${TOKENS.typography.sm} font-bold`}>{studentLevel.xp.toLocaleString()} XP</span>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="space-y-4">
           <h1 className={`${TOKENS.typography.display} text-[#091e42]`}>{quiz.title || t('quiz')}</h1>
           {quiz.description && (
@@ -629,12 +804,19 @@ const QuizSession: React.FC = () => {
 
     return (
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* XP Bar */}
-        <XPBar
-          totalXP={gameState.totalXP}
-          level={gameState.level}
-          showLevelUp={gameState.showLevelUp}
-        />
+        {/* XP Bar — combine the student's main-account XP with this session's XP */}
+        {(() => {
+          const baseXP = studentLevel?.xp ?? 0;
+          const combinedXP = baseXP + gameState.totalXP;
+          const combinedLevel = studentLevel ? getLevelFromXP(combinedXP) : gameState.level;
+          return (
+            <XPBar
+              totalXP={combinedXP}
+              level={combinedLevel}
+              showLevelUp={gameState.showLevelUp}
+            />
+          );
+        })()}
 
         {/* Progress + Streak */}
         <div className="space-y-2">
@@ -680,7 +862,7 @@ const QuizSession: React.FC = () => {
         {/* Question with animation */}
         <div
           key={slideKey}
-          className={`bg-white border border-[#e2e8f0] rounded-2xl p-8 transition-shadow duration-300 animate-slide-in-right ${
+          className={`bg-white border border-[#e2e8f0] rounded-2xl p-4 sm:p-8 transition-shadow duration-300 animate-slide-in-right ${
             feedbackAnim === 'correct' ? 'animate-correct-pulse border-[#22c55e]' :
             feedbackAnim === 'wrong' ? 'animate-wrong-shake border-[#ef4444]' : ''
           }`}
@@ -690,6 +872,14 @@ const QuizSession: React.FC = () => {
             onAnswer={handleAnswer}
             showResult={showResult}
             disabled={answered}
+            onHintRequested={async () => {
+              hintsUsedRef.current[currentQ.id] = true;
+              // Prefer the hint generated alongside the question (saved with the quiz).
+              // Fall back to an on-demand AI call only for older questions
+              // that were created before hints were stored.
+              if (currentQ.hint) return currentQ.hint;
+              return await getQuestionHint(currentQ);
+            }}
           />
         </div>
 
@@ -814,9 +1004,40 @@ const QuizSession: React.FC = () => {
             </div>
           </div>
 
-          {/* XP Bar in results */}
+          {/* XP Bar in results — show main-account base + session earnings */}
           <div className={`mt-4 ${revealedStats >= 4 ? 'animate-fade-in-up' : 'opacity-0'}`}>
-            <XPBar totalXP={gameState.totalXP} level={gameState.level} showLevelUp={false} />
+            {(() => {
+              const baseXP = studentLevel?.xp ?? 0;
+              const combinedXP = baseXP + gameState.totalXP;
+              const combinedLevel = studentLevel ? getLevelFromXP(combinedXP) : gameState.level;
+              return <XPBar totalXP={combinedXP} level={combinedLevel} showLevelUp={false} />;
+            })()}
+          </div>
+
+          {/* Main account XP indicator — reflects the actual result of the award call.
+              Hidden entirely when a teacher is previewing the student view. */}
+          <div className={`mt-4 ${revealedStats >= 4 ? 'animate-fade-in-up' : 'opacity-0'} ${cloudConfig.mode === 'teacher' ? 'hidden' : ''}`}>
+            {xpAwarded === 'success' && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#22c55e]/10 border border-[#22c55e]/30 rounded-lg text-[#16a34a] text-sm font-semibold">
+                <Icons.CircleCheck /> {t('xpSavedToAccount')}: +{gameState.totalXP} XP
+              </div>
+            )}
+            {xpAwarded === 'skipped' && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg text-[#d97706] text-sm font-semibold">
+                {t('xpNotSavedRetake')}
+              </div>
+            )}
+            {xpAwarded === 'failed' && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#ef4444]/10 border border-[#ef4444]/30 rounded-lg text-[#dc2626] text-sm font-semibold">
+                <Icons.CircleX /> {t('xpFailed')}
+              </div>
+            )}
+            {xpAwarded === 'pending' && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#e2e8f0]/50 border border-[#cbd5e1] rounded-lg text-[#475569] text-sm">
+                <div className="w-3 h-3 border-2 border-[#475569] border-t-transparent rounded-full animate-spin"></div>
+                {t('xpPending')}
+              </div>
+            )}
           </div>
 
           <div className={`flex flex-col items-center gap-3 mt-8 ${revealedStats >= 5 ? 'animate-fade-in-up' : 'opacity-0'}`}>

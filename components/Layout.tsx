@@ -9,8 +9,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   return (
     <div className="min-h-screen bg-white flex flex-col" dir={language === 'ar' ? 'rtl' : 'ltr'}>
       <header className="bg-white/90 backdrop-blur-md border-b border-[#e2e8f0] sticky top-0 z-[100]">
-        <div className="max-w-7xl mx-auto px-6 lg:px-12">
-          <div className="flex justify-between h-20 items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12">
+          <div className="flex justify-between h-16 sm:h-20 items-center">
             <div className="flex items-center gap-4">
               <div className="group flex items-center gap-3">
                 <img
@@ -34,7 +34,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 lg:px-12 py-10 relative">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-12 py-6 sm:py-10 relative">
         {children}
       </main>
     </div>
