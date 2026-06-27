@@ -31,6 +31,28 @@ function safeSet(key: string, value: string): void {
     console.warn('[store] localStorage.setItem failed:', err);
   }
 }
+function safeRemove(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch (err) {
+    console.warn('[store] localStorage.removeItem failed:', err);
+  }
+}
+
+/**
+ * Reads a query param from either the normal search string or a hash-router
+ * style `#/path?param=...` segment. Mirrors the lookup the credential effect
+ * uses, so cache invalidation sees the same `id` the app will load.
+ */
+function readUrlParam(name: string): string | null {
+  if (typeof window === 'undefined') return null;
+  const fromSearch = new URLSearchParams(window.location.search).get(name);
+  if (fromSearch) return fromSearch;
+  if (window.location.hash.includes('?')) {
+    return new URLSearchParams(window.location.hash.split('?')[1]).get(name);
+  }
+  return null;
+}
 
 export const translations = {
   en: {
@@ -364,11 +386,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [state, setState] = useState<AppState>(() => {
+    const empty: AppState = { quizzes: [], attempts: [] };
     try {
+      // Cache invalidation: if the link being opened points at a different
+      // quiz than the one cached from the last visit, the cached quiz/attempts
+      // are stale and must NOT be shown. Drop them so the app loads fresh data
+      // for the new id instead of flashing the previous quiz.
+      const urlId = readUrlParam('id');
+      const savedId = safeGet('quiz_cloud_id');
+      if (urlId && savedId && urlId !== savedId) {
+        safeRemove('quiz_state_v1');
+        return empty;
+      }
+
       const saved = safeGet('quiz_state_v1');
-      return saved ? JSON.parse(saved) : { quizzes: [], attempts: [] };
+      return saved ? JSON.parse(saved) : empty;
     } catch {
-      return { quizzes: [], attempts: [] };
+      return empty;
     }
   });
 

@@ -15,6 +15,9 @@ export const fetchArtifact = async (id: string, token: string): Promise<string> 
 
   const response = await fetch(url, {
     method: 'GET',
+    // Always fetch fresh quiz data — never serve a cached artifact, otherwise
+    // opening a different quiz can show the previous quiz's content.
+    cache: 'no-store',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/json',
@@ -106,6 +109,7 @@ export const getOwnSubmission = async (
 
   const response = await fetch(url, {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/json',
@@ -138,6 +142,7 @@ export const getStudentLevel = async (token: string): Promise<StudentLevelInfo |
   try {
     const response = await fetch(url, {
       method: 'GET',
+      cache: 'no-store',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json',
@@ -277,6 +282,7 @@ export const getSubmission = async (
 
   const response = await fetch(url, {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/json',
