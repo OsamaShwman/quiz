@@ -226,7 +226,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
       </div>
       {showResult && !showResult.correct && (
         <p className={`${TOKENS.typography.sm} text-[#22c55e]`}>
-          {t('correctAnswerIs')}: {showResult.correctAnswer}
+          {t('correctAnswerIs')}: <MathText>{showResult.correctAnswer}</MathText>
         </p>
       )}
     </div>
@@ -316,7 +316,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({ question, onAnswer, 
         </div>
         {!allMatched && !disabled && selectedLeft && (
           <p className={`${TOKENS.typography.sm} text-[#ed3b91] text-center`}>
-            Now select a match for: <strong>{selectedLeft}</strong>
+            Now select a match for: <strong><MathText>{selectedLeft}</MathText></strong>
           </p>
         )}
       </div>

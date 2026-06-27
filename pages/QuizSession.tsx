@@ -8,6 +8,7 @@ import { TimerBar } from '../components/TimerBar';
 import { Button } from '../components/Button';
 import { XPBar } from '../components/XPBar';
 import { StarRating } from '../components/StarRating';
+import { MathText } from '../components/MathText';
 import { Icons, TOKENS, GAME_CONFIG } from '../constants';
 import { calculateXP, calculateStars, getLevelFromXP, getStreakEffect, getStreakLabel } from '../utils/gamification';
 import { playCorrectSound, playWrongSound, playStreakSound, playOnFireSound, playLevelUpSound } from '../utils/soundEffects';
@@ -780,10 +781,10 @@ const QuizSession: React.FC = () => {
                       {q.correct ? <Icons.CircleCheck /> : <Icons.CircleX />}
                     </span>
                     <div className="flex-1">
-                      <p className={`${TOKENS.typography.sm} font-medium text-[#091e42]`}>{q.question}</p>
+                      <p className={`${TOKENS.typography.sm} font-medium text-[#091e42]`}><MathText>{q.question}</MathText></p>
                       {!q.correct && (
                         <p className={`${TOKENS.typography.sm} mt-1 text-[#22c55e]`}>
-                          {t('correctAnswerIs')}: {q.correctAnswer}
+                          {t('correctAnswerIs')}: <MathText>{q.correctAnswer}</MathText>
                         </p>
                       )}
                     </div>
@@ -1079,7 +1080,7 @@ const QuizSession: React.FC = () => {
                   </span>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <p className={`${TOKENS.typography.base} font-medium text-[#091e42]`}>{q.question}</p>
+                      <p className={`${TOKENS.typography.base} font-medium text-[#091e42]`}><MathText>{q.question}</MathText></p>
                       <div className="flex items-center gap-3 shrink-0 ml-3">
                         {stars > 0 && <StarRating stars={stars} size={16} />}
                         {xp > 0 && (
@@ -1089,7 +1090,7 @@ const QuizSession: React.FC = () => {
                     </div>
                     {result.studentAnswer !== '' && (
                       <p className={`${TOKENS.typography.sm} mt-1 ${result.correct ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
-                        {t('yourAnswer')}: {
+                        {t('yourAnswer')}: <MathText>{
                           Array.isArray(result.studentAnswer)
                             ? (q.type === 'multi_select'
                               ? (result.studentAnswer as number[]).map(i => (q as any).options[i]).join(', ')
@@ -1101,12 +1102,12 @@ const QuizSession: React.FC = () => {
                             : q.type === 'true_false'
                             ? (result.studentAnswer ? t('true') : t('false'))
                             : String(result.studentAnswer)
-                        }
+                        }</MathText>
                       </p>
                     )}
                     {!result.correct && (
                       <p className={`${TOKENS.typography.sm} mt-1 text-[#22c55e]`}>
-                        {t('correctAnswerIs')}: {checkResult.correctAnswer}
+                        {t('correctAnswerIs')}: <MathText>{checkResult.correctAnswer}</MathText>
                       </p>
                     )}
                   </div>
